@@ -32,10 +32,13 @@ function CheckoutForm({ artist, pricing, quantity, onSuccess, onClose }: {
   const stripe = useStripe();
   const elements = useElements();
   const [loading, setLoading] = useState(false);
+  const [isReady, setIsReady] = useState(false); // New state για έλεγχο mount
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async () => {
-    if (!stripe || !elements) return;
+    // Σιγουρευόμαστε ότι όλα είναι mounted και έτοιμα
+    if (!stripe || !elements || !isReady) return;
+    
     setLoading(true);
     setError(null);
 
@@ -64,7 +67,12 @@ function CheckoutForm({ artist, pricing, quantity, onSuccess, onClose }: {
 
   return (
     <div className="mt-5">
-      <PaymentElement options={{ layout: 'tabs' }} />
+      {/* Προσθήκη onReady για να ξέρουμε πότε έγινε mount το Element */}
+      <PaymentElement 
+        options={{ layout: 'tabs' }} 
+        onReady={() => setIsReady(true)} 
+      />
+      
       {error && (
         <motion.p
           initial={{ opacity: 0, y: -4 }}
@@ -74,16 +82,20 @@ function CheckoutForm({ artist, pricing, quantity, onSuccess, onClose }: {
           {error}
         </motion.p>
       )}
+      
       <motion.button
         onClick={handleSubmit}
-        disabled={loading || !stripe}
-        whileHover={{ scale: loading ? 1 : 1.02 }}
-        whileTap={{ scale: loading ? 1 : 0.98 }}
-        className="mt-5 w-full py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2 text-white disabled:opacity-60"
+        // Το κουμπί μένει disabled μέχρι να φορτώσει πλήρως το Stripe Element
+        disabled={loading || !stripe || !elements || !isReady}
+        whileHover={{ scale: (loading || !isReady) ? 1 : 1.02 }}
+        whileTap={{ scale: (loading || !isReady) ? 1 : 0.98 }}
+        className="mt-5 w-full py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2 text-white disabled:opacity-40"
         style={{ background: `linear-gradient(135deg, ${artist.accent}, ${artist.accent}cc)` }}
       >
         {loading ? (
           <><Loader2 size={18} className="animate-spin" /> Επεξεργασία...</>
+        ) : !isReady ? (
+          <><Loader2 size={18} className="animate-spin" /> Φόρτωση φόρμας...</>
         ) : (
           <><Ticket size={18} /> Πληρωμή €{(pricing.ticket_price * quantity).toFixed(2)}</>
         )}
