@@ -17,59 +17,70 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
-    // 1. Δημιουργούμε την εγγραφή της παραγγελίας (Order)
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert({
-        artist_slug: artistSlug,
-        buyer_email: buyerEmail,
-        buyer_name: buyerName,
-        quantity: quantity,
-        total_amount: Number(total),
-        payment_status: 'completed'
-      })
-      .select()
-      .single()
+    // Ανάκτησης του User ID από το Auth Header
+    let userId = null
+    try {
+      const authHeader = req.headers.get('Authorization')
+      if (authHeader) {
+        const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''))
+        if (user) userId = user.id
+      }
+    } catch (_) {
+      console.log("No authenticated user found");
+    }
 
-    if (orderError) throw orderError
-
-    // 2. Δημιουργούμε unique εισιτήρια με βάση την ποσότητα (Quantity)
+    const generatedCodes: string[] = []
     const ticketsRows = []
+
+    // Υπολογισμός τιμής ανά εισιτήριο
+    const pricePerTicket = Number(total) / quantity
+
     for (let i = 0; i < quantity; i++) {
-      // Παράγουμε έναν τυχαίο μοναδικό κωδικό για το QR
-      const uniqueTicketCode = `${artistSlug}-${Math.random().toString(36).substring(2, 11).toUpperCase()}-${Date.now().toString().slice(-4)}`
+      // Παραγωγή Μοναδικού Κωδικού Εισιτηρίου
+      const uniqueTicketCode = `${artistSlug.toUpperCase()}-${Math.random().toString(36).substring(2, 11).toUpperCase()}-${Date.now().toString().slice(-4)}`
+      generatedCodes.push(uniqueTicketCode)
       
       ticketsRows.push({
-        order_id: order.id,
-        artist_slug: artistSlug,
+        user_id: userId,
+        artist_id: artistSlug, // Κρατάμε το slug ή ID του καλλιτέχνη
+        artist_name: artistName,
+        buyer_email: buyerEmail,
+        buyer_name: buyerName,
+        price: pricePerTicket,
         ticket_code: uniqueTicketCode,
-        qr_code_data: uniqueTicketCode, // Αυτό το string θα διαβάζει το σκανερ στο Admin Panel
-        is_used: false
+        status: 'pending', // Ξεκινάει ως pending και γίνεται completed στο σκανάρισμα
+        event_date: new Date().toISOString(), // Ή όποια ημερομηνία περνάς
+        event_venue: 'Συναυλιακός Χώρος'
       })
     }
 
+    console.log("Εισαγωγή των εισιτηρίων στον πίνακα tickets...");
     const { data: insertedTickets, error: ticketsError } = await supabase
       .from('tickets')
       .insert(ticketsRows)
       .select()
 
-    if (ticketsError) throw ticketsError
+    if (ticketsError) {
+      console.error("Σφάλμα Supabase κατά το insert:", ticketsError)
+      throw ticketsError
+    }
 
-    // 3. Φτιάχνουμε τα QR Code Images χρησιμοποιώντας ένα δωρεάν API (goqr.me)
+    // Δημιουργία των QR Codes για το Email
     let ticketsHtml = ''
-    insertedTickets.forEach((ticket, index) => {
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${ticket.ticket_code}`
+    generatedCodes.forEach((code, index) => {
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${code}`
       
       ticketsHtml += `
         <div style="border: 2px dashed #4F46E5; padding: 15px; margin-bottom: 15px; text-align: center; border-radius: 8px; background-color: #f9f9f9;">
           <h4 style="margin: 0 0 10px 0; color: #111;">Εισιτήριο ${index + 1} από ${quantity}</h4>
           <img src="${qrUrl}" alt="QR Code" style="width: 150px; height: 150px; display: block; margin: 0 auto 10px auto;" />
-          <p style="font-family: monospace; font-size: 12px; color: #666; margin: 0;">CODE: ${ticket.ticket_code}</p>
+          <p style="font-family: monospace; font-size: 12px; color: #666; margin: 0;">ΚΩΔΙΚΟΣ: ${code}</p>
         </div>
       `
     })
 
-    // 4. Αποστολή του Email σταθερά στο manosmark42@gmail.com για το test
+    // Αποστολή Email μέσω Resend στο manosmark42@gmail.com
+    console.log("Αποστολή email μέσω Resend...")
     const resendApiKey = Deno.env.get('RESEND_API_KEY')
     const resendResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -79,22 +90,27 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         from: 'Tickets <onboarding@resend.dev>',
-        to: 'manosmark42@gmail.com', // Σταθερός παραλήπτης για τις δοκιμές
+        to: 'manosmark42@gmail.com', // Δοκιμή στο δικό σου email
         subject: `🎫 Τα εισιτήριά σου για: ${artistName}`,
         html: `
           <div style="font-family: sans-serif; padding: 20px; color: #111; max-width: 500px; margin: auto;">
             <h2 style="color: #4F46E5; text-align: center;">Ευχαριστούμε, ${buyerName}! 👋</h2>
-            <p style="text-align: center;">Η πληρωμή ολοκληρώθηκε. Παρακάτω θα βρεις τα unique εισιτήριά σου. Αποθήκευσε τα QR codes στο κινητό σου για την είσοδο.</p>
+            <p style="text-align: center;">Η πληρωμή σου ολοκληρώθηκε επιτυχώς. Παρακάτω θα βρεις τα QR Codes των εισιτηρίων σου για την είσοδο.</p>
             <hr style="border: 0; border-top: 1px solid #eee; margin: 25px 0;" />
             
             ${ticketsHtml}
             
             <hr style="border: 0; border-top: 1px solid #eee; margin: 25px 0;" />
-            <p style="font-size: 11px; color: #999; text-align: center;">Κάθε QR code μπορεί να σκαναριστεί μόνο μία φορά στην είσοδο.</p>
+            <p style="font-size: 11px; color: #999; text-align: center;">Κάθε QR code σκανάρεται μόνο μία φορά στην είσοδο.</p>
           </div>
         `,
       }),
     })
+
+    if (!resendResponse.ok) {
+      const resendData = await resendResponse.json()
+      throw new Error(`Resend API Error: ${JSON.stringify(resendData)}`)
+    }
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -102,6 +118,7 @@ serve(async (req) => {
     })
 
   } catch (error) {
+    console.error("❌ Κρίσιμο σφάλμα στην Edge Function:", error.message)
     return new Response(JSON.stringify({ success: false, error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,
