@@ -18,10 +18,10 @@ interface BuyTicketModalProps {
 interface ArtistPricing {
   ticket_price: number;
   event_date: string | null;
-  venue: string;
+  event_venue: string | null;
 }
 
-// ── Inner form (έχει πρόσβαση στο Stripe context) ──
+// ── Inner form (Stripe Context) ──
 function CheckoutForm({ artist, pricing, quantity, onSuccess, onClose }: {
   artist: Artist;
   pricing: ArtistPricing;
@@ -88,8 +88,8 @@ function CheckoutForm({ artist, pricing, quantity, onSuccess, onClose }: {
           <><Ticket size={18} /> Πληρωμή €{(pricing.ticket_price * quantity).toFixed(2)}</>
         )}
       </motion.button>
-      <p className="text-center text-gray-600 text-xs mt-3">
-        Ασφαλής πληρωμή μέσω Stripe. Το εισητήριο αποστέλλεται αμέσως.
+      <p className="text-center text-gray-600 text-xs mt-3 mb-2">
+        Ασφαλής πληρωμή μέσω Stripe. Το εισιτήριο αποστέλλεται αμέσως.
       </p>
     </div>
   );
@@ -107,7 +107,6 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
   const [loadingIntent, setLoadingIntent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Pre-fill από Google account
   useEffect(() => {
     if (user) {
       setName(user.user_metadata?.full_name ?? '');
@@ -123,7 +122,7 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
     if (!open) return;
     supabase
       .from('artists')
-      .select('ticket_price, event_date, venue')
+      .select('ticket_price, event_date, event_venue')
       .eq('slug', artist.slug)
       .maybeSingle()
       .then(({ data }) => {
@@ -144,7 +143,7 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
           artistId: artist.slug,
           artistName: artist.name,
           eventDate: pricing.event_date ?? '',
-          eventVenue: pricing.venue,
+          eventVenue: pricing.event_venue || 'Heraklion, Crete',
           price: pricing.ticket_price * quantity,
           buyerEmail: email.trim().toLowerCase(),
           buyerName: name.trim(),
@@ -181,40 +180,42 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
             exit={{ y: 60, opacity: 0, scale: 0.96 }}
             transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl overflow-hidden"
+            className="relative w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col max-h-[90vh] sm:max-h-[85vh]"
             style={{
               background: 'linear-gradient(180deg, rgba(15,10,30,0.98), rgba(0,0,0,0.98))',
               border: '1px solid rgba(255,255,255,0.08)',
             }}
           >
-            <div className="absolute top-0 left-0 right-0 h-1"
+            <div className="absolute top-0 left-0 right-0 h-1 z-20"
               style={{ background: `linear-gradient(90deg, ${artist.accent}, transparent)` }} />
 
+            {/* Σταθερό Κουμπί Κλεισίματος */}
             <button onClick={onClose}
-              className="absolute top-4 right-4 w-9 h-9 rounded-full flex items-center justify-center text-gray-400 hover:text-white transition-colors z-10"
+              className="absolute top-4 right-4 w-9 h-9 rounded-full flex items-center justify-center text-gray-400 hover:text-white transition-colors z-20"
               style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
               <X size={18} />
             </button>
 
-            <div className="p-6 sm:p-8">
+            {/* Scrollable Περιοχή Περιεχομένου */}
+            <div className="p-6 sm:p-8 overflow-y-auto flex-1 custom-scrollbar">
               {/* Header */}
               <div className="flex items-center gap-3 mb-1">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                   style={{ background: `${artist.accent}20`, border: `1px solid ${artist.accent}40` }}>
                   <Ticket size={18} style={{ color: artist.accent }} />
                 </div>
                 <span className="text-xs font-bold tracking-[0.25em] uppercase" style={{ color: artist.accent }}>
-                  {step === 'success' ? 'Επιτυχία!' : 'Αγορά Εισητηρίου'}
+                  {step === 'success' ? 'Επιτυχία!' : 'Αγορά Εισιτηρίου'}
                 </span>
               </div>
-              <h2 className="text-3xl font-black text-white mt-3 leading-tight">{artist.name}</h2>
-              <p className="text-gray-500 text-sm mt-1">{pricing?.venue || 'Heraklion, Crete'}</p>
+              <h2 className="text-3xl font-black text-white mt-3 leading-tight truncate">{artist.name}</h2>
+              <p className="text-gray-500 text-sm mt-1">{pricing?.event_venue || 'Heraklion, Crete'}</p>
 
               {/* Step: info */}
               {step === 'info' && (
                 <>
                   {/* Quantity */}
-                  <div className="mt-7">
+                  <div className="mt-6">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Ποσότητα</label>
                     <div className="flex items-center justify-between mt-2 p-2 rounded-xl"
                       style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -303,7 +304,7 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
                 <div className="text-center py-8">
                   <div className="text-6xl mb-4">🎫</div>
                   <h3 className="text-2xl font-black text-white mb-2">Η πληρωμή ολοκληρώθηκε!</h3>
-                  <p className="text-gray-400 text-sm">Το εισητήριό σου στάλθηκε στο <span className="text-white">{email}</span></p>
+                  <p className="text-gray-400 text-sm">Το εισιτήριό σου στάλθηκε στο <span className="text-white">{email}</span></p>
                   <motion.button onClick={onClose}
                     whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                     className="mt-6 w-full py-3 rounded-xl font-bold text-white"
