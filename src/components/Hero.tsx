@@ -16,10 +16,6 @@ export default function Hero() {
 
       <div className="relative z-10 text-center px-6 max-w-5xl mx-auto">
         
-        <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }} className="mb-6">
-          <span className="inline-block text-xs font-bold tracking-[0.3em] text-purple-400 uppercase border border-purple-800/60 rounded-full px-5 py-2 bg-purple-950/30 backdrop-blur-sm">
-          </span>
-        </motion.div>
 
         <motion.h1 initial={{ opacity: 0, y: 50, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.9, delay: 0.4, ease: [0.22, 1, 0.36, 1] }} className="text-5xl sm:text-7xl md:text-8xl font-black leading-none tracking-tight mb-6">
           <span className="block text-white">Heraklion</span>

@@ -24,6 +24,8 @@ interface Artist {
   event_date: string | null;
   event_time: string | null;
   event_venue: string | null;
+  venue_lat: number | null;
+  venue_lng: number | null;
   ticket_price: number | null;
   ticket_currency: string;
   tickets_available: number | null;
@@ -108,6 +110,11 @@ export default function ArtistPage() {
   const ticketsSoldPct = artist.tickets_available
     ? Math.min(100, Math.round((artist.tickets_sold / artist.tickets_available) * 100))
     : null;
+
+  // Κατασκευή του σωστού Google Maps Embed URL χρησιμοποιώντας lat/lng ή εναλλακτικά το text query
+  const mapEmbedUrl = (artist.venue_lat && artist.venue_lng)
+    ? `https://maps.google.com/maps?q=${artist.venue_lat},${artist.venue_lng}&t=&z=15&ie=UTF8&iwloc=&output=embed`
+    : `https://maps.google.com/maps?q=${encodeURIComponent(artist.event_venue || 'Heraklion, Crete')}&t=&z=15&ie=UTF8&iwloc=&output=embed`;
 
   return (
     <div className="bg-black min-h-screen overflow-x-hidden">
@@ -395,7 +402,7 @@ export default function ArtistPage() {
                 </div>
               </div>
               <iframe
-                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d51264.65744026695!2d25.09719131318359!3d35.33874479999999!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x149a5a5ba06c40e1%3A0x400bd2ce2b98c20!2sHeraklion%2C%20Greece!5e0!3m2!1sen!2s!4v1700000000000!5m2!1sen!2s"
+                src={mapEmbedUrl}
                 width="100%"
                 height="400"
                 style={{ border: 0, filter: 'invert(90%) hue-rotate(180deg) brightness(0.8) contrast(1.2)' }}

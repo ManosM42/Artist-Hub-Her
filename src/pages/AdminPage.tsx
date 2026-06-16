@@ -4,7 +4,7 @@ import {
   Shield, LogOut, Plus, Edit3, Trash2, Eye, EyeOff,
   Save, X, Search, Ticket, Calendar, Clock, MapPin,
   Link, Instagram, Image, ChevronUp, ChevronDown,
-  Users, TrendingUp, Music, AlertCircle, Check, Loader2
+  Users, TrendingUp, Music, AlertCircle, Check, Loader2, Map
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -17,7 +17,6 @@ interface Artist {
   tag_color: string;
   gradient: string;
   accent: string;
-  icon_name: string;
   description: string;
   image: string;
   ticket_url: string;
@@ -25,6 +24,8 @@ interface Artist {
   event_date: string;
   event_time: string;
   event_venue: string;
+  venue_lat: number | null;
+  venue_lng: number | null;
   ticket_price: number | null;
   ticket_currency: string;
   tickets_available: number | null;
@@ -37,9 +38,10 @@ const EMPTY_ARTIST: Omit<Artist, 'id'> = {
   name: '', slug: '', label: 'Live in Heraklion', tag: 'Fan Favorite',
   tag_color: 'from-purple-500 to-violet-500',
   gradient: 'from-purple-900 via-purple-800 to-indigo-900',
-  accent: '#a855f7', icon_name: 'Volume2', description: '',
+  accent: '#a855f7', description: '',
   image: '', ticket_url: '', instagram_url: '',
   event_date: 'TBA', event_time: 'TBA', event_venue: 'Heraklion, Crete',
+  venue_lat: 35.3387, venue_lng: 25.1442, // Default: Ηράκλειο
   ticket_price: null, ticket_currency: 'EUR',
   tickets_available: null, tickets_sold: 0,
   is_published: true, sort_order: 0,
@@ -78,7 +80,6 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
     const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
     if (authError) { setError('Λάθος email ή κωδικός.'); setLoading(false); return; }
 
-    // ΔΙΟΡΘΩΣΗ: Έλεγχος της στήλης role αντί για is_admin
     const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single();
     if (profile?.role !== 'admin') {
       await supabase.auth.signOut();
@@ -149,7 +150,7 @@ function ArtistForm({ initial, onSave, onCancel }: {
 
   const tabs = [
     { key: 'basic', label: 'Βασικά', icon: Music },
-    { key: 'event', label: 'Event', icon: Calendar },
+    { key: 'event', label: 'Event & Map', icon: Calendar },
     { key: 'tickets', label: 'Εισιτήρια', icon: Ticket },
     { key: 'visual', label: 'Εμφάνιση', icon: Image },
   ] as const;
@@ -218,16 +219,26 @@ function ArtistForm({ initial, onSave, onCancel }: {
             <>
               <Field label="Ημερομηνία">
                 <input value={form.event_date || ''} onChange={e => set('event_date', e.target.value)}
-                  className={input} placeholder="π.χ. 15 Αυγούστου 2025 ή TBA" />
+                  className={input} placeholder="π.χ. 15 Αυγούστου 2026 ή TBA" />
               </Field>
               <Field label="Ώρα">
                 <input value={form.event_time || ''} onChange={e => set('event_time', e.target.value)}
                   className={input} placeholder="π.χ. 22:00 ή TBA" />
               </Field>
-              <Field label="Venue">
+              <Field label="Όνομα Τοποθεσίας (Venue)">
                 <input value={form.event_venue || ''} onChange={e => set('event_venue', e.target.value)}
-                  className={input} placeholder="π.χ. Heraklion, Crete" />
+                  className={input} placeholder="π.χ. Πύλη Βηθλεέμ, Ηράκλειο" />
               </Field>
+              <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
+                <Field label="Venue Latitude (π.χ. 35.3387)">
+                  <input type="number" step="any" value={form.venue_lat ?? ''} onChange={e => set('venue_lat', e.target.value ? Number(e.target.value) : null)}
+                    className={input} placeholder="35.3387" />
+                </Field>
+                <Field label="Venue Longitude (π.w. 25.1442)">
+                  <input type="number" step="any" value={form.venue_lng ?? ''} onChange={e => set('venue_lng', e.target.value ? Number(e.target.value) : null)}
+                    className={input} placeholder="25.1442" />
+                </Field>
+              </div>
             </>
           )}
 
@@ -338,7 +349,6 @@ export default function AdminPage() {
   const totalRevenue = artists.reduce((s, a) => s + ((a.tickets_sold || 0) * (a.ticket_price || 0)), 0);
   const published = artists.filter(a => a.is_published).length;
 
-  // ΔΙΟΡΘΩΣΗ: Έλεγχος της στήλης role και στο αυτόματο session login
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
       if (data.session) {
@@ -367,13 +377,36 @@ export default function AdminPage() {
   };
 
   const handleSave = async (data: Partial<Artist>) => {
-    if (data.id) {
-      const { error } = await supabase.from('artists').update({ ...data, updated_at: new Date().toISOString() }).eq('id', data.id);
-      if (error) { showToast('Σφάλμα αποθήκευσης', 'error'); return; }
+    setLoading(true);
+    
+    const { id, ...cleanData } = data;
+    const payload = {
+      ...cleanData,
+      venue_lat: data.venue_lat ? Number(data.venue_lat) : null,
+      venue_lng: data.venue_lng ? Number(data.venue_lng) : null,
+      ticket_price: data.ticket_price ? Number(data.ticket_price) : null,
+      tickets_available: data.tickets_available ? Number(data.tickets_available) : null,
+      tickets_sold: data.tickets_sold ? Number(data.tickets_sold) : 0,
+      sort_order: data.sort_order ? Number(data.sort_order) : 0,
+    };
+
+    if (id) {
+      const { error } = await supabase.from('artists').update(payload).eq('id', id);
+      if (error) { 
+        console.error(error);
+        showToast('Σφάλμα αποθήκευσης: ' + error.message, 'error'); 
+        setLoading(false);
+        return; 
+      }
       showToast(`✓ ${data.name} ενημερώθηκε`);
     } else {
-      const { error } = await supabase.from('artists').insert(data);
-      if (error) { showToast('Σφάλμα δημιουργίας: ' + error.message, 'error'); return; }
+      const { error } = await supabase.from('artists').insert([payload]);
+      if (error) { 
+        console.error(error);
+        showToast('Σφάλμα δημιουργίας: ' + error.message, 'error'); 
+        setLoading(false);
+        return; 
+      }
       showToast(`✓ ${data.name} δημιουργήθηκε`);
     }
     setEditingArtist(null);
