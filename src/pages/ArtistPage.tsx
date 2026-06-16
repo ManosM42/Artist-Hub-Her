@@ -1,27 +1,70 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Calendar, Clock, MapPin, Ticket, Instagram, ExternalLink, CheckCircle2, X } from 'lucide-react';
-import { artists } from '@/data/artists';
+import { ArrowLeft, Calendar, Clock, MapPin, Ticket, Instagram, ExternalLink, CheckCircle2, X, Loader2 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import ParticleBackground from '@/components/ParticleBackground';
 import BuyTicketModal from '@/components/BuyTicketModal';
 
+interface Artist {
+  id: string;
+  name: string;
+  slug: string;
+  label: string;
+  tag: string;
+  tag_color: string;
+  gradient: string;
+  accent: string;
+  description: string;
+  image: string;
+  ticket_url: string | null;
+  instagram_url: string | null;
+  event_date: string | null;
+  event_time: string | null;
+  event_venue: string | null;
+  ticket_price: number | null;
+  ticket_currency: string;
+  tickets_available: number | null;
+  tickets_sold: number;
+  is_published: boolean;
+}
+
 export default function ArtistPage() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const artist = artists.find((a) => a.slug === slug);
+
+  const [artist, setArtist] = useState<Artist | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
 
+  // Φόρτωση artist από Supabase
+  useEffect(() => {
+    if (!slug) return;
+    setLoading(true);
+    supabase
+      .from('artists')
+      .select('*')
+      .eq('slug', slug)
+      .eq('is_published', true)
+      .single()
+      .then(({ data, error }) => {
+        if (data) setArtist(data);
+        else setNotFound(true);
+        setLoading(false);
+      });
+  }, [slug]);
+
+  // Payment status από URL params
   useEffect(() => {
     const payment = searchParams.get('payment');
     if (payment === 'success') {
       setShowSuccess(true);
-      // clean URL after a beat
       const t = setTimeout(() => {
         searchParams.delete('payment');
         searchParams.delete('order_id');
@@ -39,18 +82,32 @@ export default function ArtistPage() {
     }
   }, [searchParams, setSearchParams]);
 
-  if (!artist) {
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <Loader2 size={32} className="animate-spin text-purple-500" />
+      </div>
+    );
+  }
+
+  // Not found state
+  if (notFound || !artist) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-4xl font-black text-white mb-4">Artist Not Found</h1>
-          <button onClick={() => navigate('/')} className="text-purple-400 hover:text-purple-300 transition-colors">← Back to Home</button>
+          <button onClick={() => navigate('/')} className="text-purple-400 hover:text-purple-300 transition-colors">
+            ← Back to Home
+          </button>
         </div>
       </div>
     );
   }
 
-  const Icon = artist.icon;
+  const ticketsSoldPct = artist.tickets_available
+    ? Math.min(100, Math.round((artist.tickets_sold / artist.tickets_available) * 100))
+    : null;
 
   return (
     <div className="bg-black min-h-screen overflow-x-hidden">
@@ -87,12 +144,6 @@ export default function ArtistPage() {
             >
               <img src={artist.image} alt={artist.name} className="w-full h-full object-cover" />
               <div className={`absolute inset-0 bg-gradient-to-t ${artist.gradient} opacity-40`} />
-              <div
-                className="absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm"
-                style={{ background: `${artist.accent}30`, border: `1px solid ${artist.accent}50` }}
-              >
-                <Icon size={14} style={{ color: artist.accent }} />
-              </div>
             </motion.div>
 
             <motion.div
@@ -101,7 +152,7 @@ export default function ArtistPage() {
               transition={{ duration: 0.7, delay: 0.2 }}
               className="flex-1"
             >
-              <span className={`inline-flex items-center gap-1 text-xs font-bold px-3 py-1 rounded-full bg-gradient-to-r ${artist.tagColor} text-white mb-4`}>
+              <span className={`inline-flex items-center gap-1 text-xs font-bold px-3 py-1 rounded-full bg-gradient-to-r ${artist.tag_color} text-white mb-4`}>
                 {artist.tag}
               </span>
               <h1 className="text-5xl sm:text-7xl font-black text-white leading-none mb-3">{artist.name}</h1>
@@ -121,6 +172,7 @@ export default function ArtistPage() {
 
         <div className="max-w-6xl mx-auto px-6">
           <div className="grid md:grid-cols-2 gap-8">
+
             {/* Event Info Box */}
             <motion.div
               initial={{ opacity: 0, y: 40 }}
@@ -130,10 +182,12 @@ export default function ArtistPage() {
               className="rounded-2xl p-8 relative overflow-hidden"
               style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
             >
-              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r" style={{ backgroundImage: `linear-gradient(90deg, ${artist.accent}, transparent)` }} />
-              
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r"
+                style={{ backgroundImage: `linear-gradient(90deg, ${artist.accent}, transparent)` }} />
+
               <h2 className="text-2xl font-black text-white mb-6 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${artist.accent}20`, border: `1px solid ${artist.accent}30` }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: `${artist.accent}20`, border: `1px solid ${artist.accent}30` }}>
                   <Calendar size={18} style={{ color: artist.accent }} />
                 </div>
                 Event Details
@@ -141,34 +195,76 @@ export default function ArtistPage() {
 
               <div className="space-y-5">
                 <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <Calendar size={16} className="text-purple-400" />
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs uppercase tracking-wider font-bold mb-1">Date</p>
-                    <p className="text-white font-semibold">{artist.eventDate || 'TBA'}</p>
+                    <p className="text-white font-semibold">{artist.event_date || 'TBA'}</p>
                   </div>
                 </div>
 
                 <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <Clock size={16} className="text-purple-400" />
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs uppercase tracking-wider font-bold mb-1">Time</p>
-                    <p className="text-white font-semibold">{artist.eventTime || 'TBA'}</p>
+                    <p className="text-white font-semibold">{artist.event_time || 'TBA'}</p>
                   </div>
                 </div>
 
                 <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <MapPin size={16} className="text-purple-400" />
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs uppercase tracking-wider font-bold mb-1">Venue</p>
-                    <p className="text-white font-semibold">{artist.eventVenue || 'Heraklion, Crete'}</p>
+                    <p className="text-white font-semibold">{artist.event_venue || 'Heraklion, Crete'}</p>
                   </div>
                 </div>
+
+                {/* Τιμή εισιτηρίου */}
+                {artist.ticket_price != null && (
+                  <div className="flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <Ticket size={16} className="text-purple-400" />
+                    </div>
+                    <div>
+                      <p className="text-gray-500 text-xs uppercase tracking-wider font-bold mb-1">Τιμή</p>
+                      <p className="text-white font-semibold">
+                        {artist.ticket_price} {artist.ticket_currency}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Progress bar εισιτηρίων */}
+                {ticketsSoldPct !== null && (
+                  <div className="pt-2">
+                    <div className="flex justify-between text-xs text-gray-500 mb-2">
+                      <span>{artist.tickets_sold} πουλήθηκαν</span>
+                      <span>{artist.tickets_available! - artist.tickets_sold} διαθέσιμα</span>
+                    </div>
+                    <div className="h-2 bg-white/8 rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        whileInView={{ width: `${ticketsSoldPct}%` }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 1, ease: 'easeOut' }}
+                        className="h-full rounded-full"
+                        style={{ background: artist.accent }}
+                      />
+                    </div>
+                    {ticketsSoldPct >= 90 && (
+                      <p className="text-xs text-red-400 font-bold mt-1.5">⚠ Τελευταία εισιτήρια!</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <motion.button
@@ -185,7 +281,9 @@ export default function ArtistPage() {
                   style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)' }}
                 />
                 <Ticket size={18} className="relative z-10" />
-                <span className="relative z-10">Buy Tickets</span>
+                <span className="relative z-10">
+                  {artist.ticket_price != null ? `Αγορά — ${artist.ticket_price} ${artist.ticket_currency}` : 'Buy Tickets'}
+                </span>
               </motion.button>
             </motion.div>
 
@@ -201,7 +299,8 @@ export default function ArtistPage() {
               <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-pink-500 to-purple-500" />
 
               <h2 className="text-2xl font-black text-white mb-6 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(236,72,153,0.2)', border: '1px solid rgba(236,72,153,0.3)' }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: 'rgba(236,72,153,0.2)', border: '1px solid rgba(236,72,153,0.3)' }}>
                   <ExternalLink size={18} className="text-pink-400" />
                 </div>
                 Follow & Connect
@@ -212,9 +311,9 @@ export default function ArtistPage() {
               </p>
 
               <div className="space-y-3">
-                {artist.instagramUrl && (
+                {artist.instagram_url && (
                   <motion.a
-                    href={artist.instagramUrl}
+                    href={artist.instagram_url}
                     target="_blank"
                     rel="noopener noreferrer"
                     whileHover={{ x: 4, scale: 1.01 }}
@@ -232,28 +331,31 @@ export default function ArtistPage() {
                   </motion.a>
                 )}
 
-                <motion.a
-                  href={artist.ticketUrl || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  whileHover={{ x: 4, scale: 1.01 }}
-                  className="flex items-center gap-4 p-4 rounded-xl transition-all duration-300 group"
-                  style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
-                >
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${artist.accent}20`, border: `1px solid ${artist.accent}30` }}>
-                    <Ticket size={18} style={{ color: artist.accent }} />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-white font-bold text-sm">Ticket Store</p>
-                    <p className="text-gray-500 text-xs">Get your tickets now</p>
-                  </div>
-                  <ExternalLink size={14} className="text-gray-600 group-hover:text-purple-400 transition-colors" />
-                </motion.a>
+                {artist.ticket_url && (
+                  <motion.a
+                    href={artist.ticket_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    whileHover={{ x: 4, scale: 1.01 }}
+                    className="flex items-center gap-4 p-4 rounded-xl transition-all duration-300 group"
+                    style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
+                  >
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                      style={{ background: `${artist.accent}20`, border: `1px solid ${artist.accent}30` }}>
+                      <Ticket size={18} style={{ color: artist.accent }} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-white font-bold text-sm">Ticket Store</p>
+                      <p className="text-gray-500 text-xs">Get your tickets now</p>
+                    </div>
+                    <ExternalLink size={14} className="text-gray-600 group-hover:text-purple-400 transition-colors" />
+                  </motion.a>
+                )}
               </div>
             </motion.div>
           </div>
 
-          {/* Description Section */}
+          {/* About Section */}
           <motion.div
             initial={{ opacity: 0, y: 40 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -264,7 +366,10 @@ export default function ArtistPage() {
           >
             <h2 className="text-2xl font-black text-white mb-4">About {artist.name}</h2>
             <p className="text-gray-400 leading-relaxed text-lg">
-              {artist.description}. Performing live in Heraklion as part of the <span className="text-purple-400 font-semibold">Heraklion is Alive</span> series — Crete's premier nightlife experience bringing Greece's biggest rap and urban artists to the island. Don't miss this unforgettable night of music, energy, and Mediterranean vibes.
+              {artist.description}. Performing live in Heraklion as part of the{' '}
+              <span className="text-purple-400 font-semibold">Heraklion is Alive</span> series — Crete's premier
+              nightlife experience bringing Greece's biggest rap and urban artists to the island. Don't miss this
+              unforgettable night of music, energy, and Mediterranean vibes.
             </p>
           </motion.div>
 
@@ -276,14 +381,17 @@ export default function ArtistPage() {
             transition={{ duration: 0.7, delay: 0.2 }}
             className="mt-8"
           >
-            <div className="rounded-2xl overflow-hidden relative" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
-              <div className="p-6 flex items-center gap-3" style={{ background: 'rgba(255,255,255,0.02)' }}>
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(124,58,237,0.2)', border: '1px solid rgba(124,58,237,0.3)' }}>
+            <div className="rounded-2xl overflow-hidden relative"
+              style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
+              <div className="p-6 flex items-center gap-3"
+                style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: 'rgba(124,58,237,0.2)', border: '1px solid rgba(124,58,237,0.3)' }}>
                   <MapPin size={18} className="text-purple-400" />
                 </div>
                 <div>
                   <h3 className="text-white font-black text-lg">Event Location</h3>
-                  <p className="text-gray-500 text-sm">Heraklion, Crete, Greece</p>
+                  <p className="text-gray-500 text-sm">{artist.event_venue || 'Heraklion, Crete, Greece'}</p>
                 </div>
               </div>
               <iframe
@@ -305,7 +413,7 @@ export default function ArtistPage() {
 
       <BuyTicketModal open={modalOpen} onClose={() => setModalOpen(false)} artist={artist} />
 
-      {/* Success / cancelled toasts */}
+      {/* Success / Cancelled toasts */}
       <AnimatePresence>
         {showSuccess && (
           <motion.div
@@ -315,16 +423,13 @@ export default function ArtistPage() {
             className="fixed top-20 left-1/2 -translate-x-1/2 z-[110] max-w-md w-[90%]"
           >
             <div className="rounded-2xl p-5 flex items-start gap-3 shadow-2xl"
-              style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(0,0,0,0.95))', border: '1px solid rgba(16,185,129,0.3)', backdropFilter: 'blur(20px)' }}
-            >
+              style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(0,0,0,0.95))', border: '1px solid rgba(16,185,129,0.3)', backdropFilter: 'blur(20px)' }}>
               <CheckCircle2 size={22} className="text-emerald-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-white font-bold text-sm">Payment confirmed! 🎟️</p>
                 <p className="text-gray-400 text-xs mt-1">Your tickets for {artist.name} are on their way to your inbox.</p>
               </div>
-              <button onClick={() => setShowSuccess(false)} className="text-gray-500 hover:text-white">
-                <X size={16} />
-              </button>
+              <button onClick={() => setShowSuccess(false)} className="text-gray-500 hover:text-white"><X size={16} /></button>
             </div>
           </motion.div>
         )}
@@ -336,16 +441,13 @@ export default function ArtistPage() {
             className="fixed top-20 left-1/2 -translate-x-1/2 z-[110] max-w-md w-[90%]"
           >
             <div className="rounded-2xl p-5 flex items-start gap-3 shadow-2xl"
-              style={{ background: 'rgba(0,0,0,0.95)', border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(20px)' }}
-            >
+              style={{ background: 'rgba(0,0,0,0.95)', border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(20px)' }}>
               <X size={22} className="text-gray-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-white font-bold text-sm">Payment cancelled</p>
                 <p className="text-gray-400 text-xs mt-1">No worries — try again whenever you're ready.</p>
               </div>
-              <button onClick={() => setShowCancelled(false)} className="text-gray-500 hover:text-white">
-                <X size={16} />
-              </button>
+              <button onClick={() => setShowCancelled(false)} className="text-gray-500 hover:text-white"><X size={16} /></button>
             </div>
           </motion.div>
         )}
