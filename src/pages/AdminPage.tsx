@@ -78,9 +78,9 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
     const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
     if (authError) { setError('Λάθος email ή κωδικός.'); setLoading(false); return; }
 
-    // Έλεγξε αν είναι admin
-    const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', data.user.id).single();
-    if (!profile?.is_admin) {
+    // ΔΙΟΡΘΩΣΗ: Έλεγχος της στήλης role αντί για is_admin
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single();
+    if (profile?.role !== 'admin') {
       await supabase.auth.signOut();
       setError('Δεν έχεις δικαιώματα admin.'); setLoading(false); return;
     }
@@ -160,7 +160,6 @@ function ArtistForm({ initial, onSave, onCancel }: {
       <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }}
         className="w-full max-w-2xl bg-zinc-950 border border-white/10 rounded-2xl overflow-hidden max-h-[90vh] flex flex-col">
 
-        {/* Form Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/8">
           <h2 className="text-white font-black text-lg">
             {initial.id ? `Επεξεργασία: ${initial.name}` : 'Νέος Artist'}
@@ -168,7 +167,6 @@ function ArtistForm({ initial, onSave, onCancel }: {
           <button onClick={onCancel} className="text-gray-500 hover:text-white transition"><X size={20} /></button>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b border-white/8">
           {tabs.map(t => {
             const Icon = t.icon;
@@ -181,9 +179,7 @@ function ArtistForm({ initial, onSave, onCancel }: {
           })}
         </div>
 
-        {/* Form Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-
           {tab === 'basic' && (
             <>
               <Field label="Όνομα Artist *">
@@ -253,18 +249,6 @@ function ArtistForm({ initial, onSave, onCancel }: {
                 <input value={form.ticket_url || ''} onChange={e => set('ticket_url', e.target.value)}
                   className={input} placeholder="https://..." />
               </Field>
-              {form.tickets_available != null && form.tickets_available > 0 && (
-                <div className="bg-white/5 rounded-xl p-4">
-                  <div className="flex justify-between text-xs text-gray-400 mb-2">
-                    <span>Πωλήσεις</span>
-                    <span>{form.tickets_sold} / {form.tickets_available}</span>
-                  </div>
-                  <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-purple-500 rounded-full transition-all"
-                      style={{ width: `${Math.min(100, ((form.tickets_sold || 0) / form.tickets_available) * 100)}%` }} />
-                  </div>
-                </div>
-              )}
             </>
           )}
 
@@ -299,7 +283,7 @@ function ArtistForm({ initial, onSave, onCancel }: {
                   ))}
                 </div>
               </Field>
-              <Field label="Sort Order (μικρότερο = πρώτο)">
+              <Field label="Sort Order">
                 <input type="number" value={form.sort_order || 0} onChange={e => set('sort_order', Number(e.target.value))}
                   className={input} />
               </Field>
@@ -307,7 +291,6 @@ function ArtistForm({ initial, onSave, onCancel }: {
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-white/8 bg-zinc-950">
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-500 font-bold">Δημοσίευση</span>
@@ -351,16 +334,21 @@ export default function AdminPage() {
   const [editingArtist, setEditingArtist] = useState<Partial<Artist> | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
-  // Stats
   const totalTickets = artists.reduce((s, a) => s + (a.tickets_sold || 0), 0);
   const totalRevenue = artists.reduce((s, a) => s + ((a.tickets_sold || 0) * (a.ticket_price || 0)), 0);
   const published = artists.filter(a => a.is_published).length;
 
+  // ΔΙΟΡΘΩΣΗ: Έλεγχος της στήλης role και στο αυτόματο session login
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
       if (data.session) {
-        const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', data.session.user.id).single();
-        if (profile?.is_admin) { setAuthed(true); fetchArtists(); }
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.session.user.id).single();
+        if (profile?.role === 'admin') { 
+          setAuthed(true); 
+          fetchArtists(); 
+        } else {
+          await supabase.auth.signOut();
+        }
       }
       setCheckingAuth(false);
     });
@@ -424,8 +412,6 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-
-      {/* Top Bar */}
       <div className="sticky top-0 z-30 bg-black/90 backdrop-blur-md border-b border-white/8 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center">
@@ -442,8 +428,6 @@ export default function AdminPage() {
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
-
-        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: 'Artists', value: artists.length, icon: Music, color: 'text-purple-400' },
@@ -462,7 +446,6 @@ export default function AdminPage() {
           })}
         </div>
 
-        {/* Artists Table */}
         <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-white/8">
             <h2 className="font-black text-white">Artists</h2>
@@ -487,23 +470,18 @@ export default function AdminPage() {
             <div className="text-center py-16 text-gray-600">
               <Music size={32} className="mx-auto mb-3 opacity-30" />
               <p className="text-sm">Δεν βρέθηκαν artists</p>
-              {artists.length === 0 && (
-                <p className="text-xs mt-2 text-gray-700">Πρόσθεσε τον πρώτο artist ή κάνε import από το artists.ts</p>
-              )}
             </div>
           ) : (
             <div className="divide-y divide-white/5">
               {filtered.map(artist => (
                 <motion.div key={artist.id} layout
                   className="flex items-center gap-4 px-6 py-4 hover:bg-white/3 transition group">
-                  {/* Avatar */}
                   <div className="w-10 h-10 rounded-xl overflow-hidden bg-zinc-800 flex-shrink-0">
                     {artist.image
                       ? <img src={artist.image} className="w-full h-full object-cover" />
                       : <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-400">{artist.name[0]}</div>}
                   </div>
 
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-bold text-white truncate">{artist.name}</p>
@@ -519,33 +497,12 @@ export default function AdminPage() {
                       <span className="text-[11px] text-gray-500 flex items-center gap-1">
                         <MapPin size={10} />{artist.event_venue || '—'}
                       </span>
-                      {artist.ticket_price != null && (
-                        <span className="text-[11px] text-purple-400 font-bold flex items-center gap-1">
-                          <Ticket size={10} />€{artist.ticket_price}
-                        </span>
-                      )}
                     </div>
                   </div>
 
-                  {/* Ticket bar */}
-                  {artist.tickets_available != null && artist.tickets_available > 0 && (
-                    <div className="hidden md:block w-24">
-                      <div className="flex justify-between text-[10px] text-gray-600 mb-1">
-                        <span>{artist.tickets_sold}</span>
-                        <span>{artist.tickets_available}</span>
-                      </div>
-                      <div className="h-1.5 bg-white/8 rounded-full overflow-hidden">
-                        <div className="h-full bg-purple-500 rounded-full"
-                          style={{ width: `${Math.min(100, (artist.tickets_sold / artist.tickets_available) * 100)}%` }} />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Actions */}
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
                     <button onClick={() => handleTogglePublish(artist)}
-                      className={`p-2 rounded-lg transition ${artist.is_published ? 'text-green-400 hover:bg-green-400/10' : 'text-gray-600 hover:bg-white/5'}`}
-                      title={artist.is_published ? 'Απόκρυψη' : 'Δημοσίευση'}>
+                      className={`p-2 rounded-lg transition ${artist.is_published ? 'text-green-400 hover:bg-green-400/10' : 'text-gray-600 hover:bg-white/5'}`}>
                       {artist.is_published ? <Eye size={15} /> : <EyeOff size={15} />}
                     </button>
                     <button onClick={() => setEditingArtist(artist)}
@@ -564,7 +521,6 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Edit/Create Form */}
       <AnimatePresence>
         {editingArtist !== null && (
           <ArtistForm
@@ -575,7 +531,6 @@ export default function AdminPage() {
         )}
       </AnimatePresence>
 
-      {/* Toast */}
       <AnimatePresence>
         {toast && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
