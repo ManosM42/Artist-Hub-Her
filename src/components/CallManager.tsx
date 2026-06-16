@@ -121,21 +121,27 @@ export default function CallManager({ onCallRequest }: { onCallRequest: (fn: any
     };
 
     // Μόλις το WebRTC βρει ένα ICE Candidate, το σπρώχνει στη Supabase
-    pc.onicecandidate = async (event) => {
-      if (!event.candidate) return;
+    pc.onicecandidate = (event) => {
+  if (!event.candidate) return;
+  
+  setTimeout(async () => {
+    const { data: currentCall } = await supabase.from('calls').select('*').eq('id', callId).single();
+    if (!currentCall) return;
 
-      // Παίρνουμε τα τρέχοντα candidates από τη βάση για να μην τα σβήσουμε
-      const { data: currentCall } = await supabase.from('calls').select('*').eq('id', callId).single();
-      if (!currentCall) return;
-
-      if (isSender) {
-        const list = currentCall.sender_candidates || [];
+    if (isSender) {
+      const list = currentCall.sender_candidates || [];
+      // Σιγουρευόμαστε ότι δεν ξαναστέλνουμε το ίδιο
+      if (!list.some((c: any) => c.candidate === event.candidate.candidate)) {
         await supabase.from('calls').update({ sender_candidates: [...list, event.candidate.toJSON()] }).eq('id', callId);
-      } else {
-        const list = currentCall.receiver_candidates || [];
+      }
+    } else {
+      const list = currentCall.receiver_candidates || [];
+      if (!list.some((c: any) => c.candidate === event.candidate.candidate)) {
         await supabase.from('calls').update({ receiver_candidates: [...list, event.candidate.toJSON()] }).eq('id', callId);
       }
-    };
+    }
+  }, 500); // 0.5 δευτερόλεπτο καθυστέρηση για σιγουριά
+};
 
     pcRef.current = pc;
     return pc;
