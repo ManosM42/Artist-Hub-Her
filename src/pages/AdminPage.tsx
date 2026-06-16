@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import {
   Shield, LogOut, Plus, Edit3, Trash2, Eye, EyeOff,
   Save, X, Search, Ticket, Calendar, Clock, MapPin,
   Link, Instagram, Image, ChevronUp, ChevronDown,
-  Users, TrendingUp, Music, AlertCircle, Check, Loader2, Map
+  Users, TrendingUp, Music, AlertCircle, Check, Loader2, Map, Scan
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -41,7 +42,7 @@ const EMPTY_ARTIST: Omit<Artist, 'id'> = {
   accent: '#a855f7', description: '',
   image: '', ticket_url: '', instagram_url: '',
   event_date: 'TBA', event_time: 'TBA', event_venue: 'Heraklion, Crete',
-  venue_lat: 35.3387, venue_lng: 25.1442, // Default: Ηράκλειο
+  venue_lat: 35.3387, venue_lng: 25.1442,
   ticket_price: null, ticket_currency: 'EUR',
   tickets_available: null, tickets_sold: 0,
   is_published: true, sort_order: 0,
@@ -90,8 +91,7 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
 
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-4">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-sm">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-sm">
         <div className="text-center mb-8">
           <div className="w-16 h-16 rounded-2xl bg-purple-600 flex items-center justify-center mx-auto mb-4">
             <Shield size={28} className="text-white" />
@@ -128,6 +128,120 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
   );
 }
 
+// ── QR SCANNER COMPONENT ──────────────────────────────────────────
+function QrTicketScanner({ onScanSuccess }: { onScanSuccess: (msg: string, type: 'success' | 'error') => void }) {
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<{ message: string; success: boolean } | null>(null);
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+
+  useEffect(() => {
+    if (scanning) {
+      scannerRef.current = new Html5QrcodeScanner(
+        "qr-reader",
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        false
+      );
+
+      scannerRef.current.render(
+        async (decodedText) => {
+          // Μόλις βρει κώδικα, σταματάμε προσωρινά το σκανάρισμα για επεξεργασία
+          setScanning(false);
+          if (scannerRef.current) {
+            scannerRef.current.clear().catch(console.error);
+          }
+
+          try {
+            // 1. Έλεγχος αν το εισιτήριο υπάρχει και είναι ενεργό
+            const { data: ticket, error: fetchError } = await supabase
+              .from('tickets')
+              .select('*')
+              .eq('ticket_code', decodedText)
+              .single();
+
+            if (fetchError || !ticket) {
+              setScanResult({ message: "❌ Άκυρο Εισιτήριο! Δεν βρέθηκε στη βάση.", success: false });
+              onScanSuccess("Άκυρο εισιτήριο!", "error");
+              return;
+            }
+
+            if (ticket.status !== 'pending') {
+              setScanResult({ message: "⚠️ Το εισιτήριο έχει ήδη χρησιμοποιηθεί!", success: false });
+              onScanSuccess("Ήδη χρησιμοποιημένο!", "error");
+              return;
+            }
+
+            // 2. Εφόσον είναι έγκυρο, το ΔΙΑΓΡΑΦΟΥΜΕ αμέσως όπως ζήτησες
+            const { error: deleteError } = await supabase
+              .from('tickets')
+              .delete()
+              .eq('id', ticket.id);
+
+            if (deleteError) throw deleteError;
+
+            setScanResult({
+              message: `✅ ΕΓΚΥΡΟ ΕΙΣΙΤΗΡΙΟ!\nΚάτοχος: ${ticket.buyer_name || 'Άγνωστος'}\nΚαλλιτέχνης: ${ticket.artist_name || ''}\n\nΤο εισιτήριο επιβεβαιώθηκε και διαγράφηκε επιτυχώς.`,
+              success: true
+            });
+            onScanSuccess("✓ Το εισιτήριο εξαργυρώθηκε και διαγράφηκε!", "success");
+
+          } catch (err: any) {
+            setScanResult({ message: `❌ Σφάλμα συστήματος: ${err.message}`, success: false });
+            onScanSuccess("Σφάλμα επεξεργασίας", "error");
+          }
+        },
+        (error) => {
+          // Σφάλματα ανάγνωσης κατά τη διάρκεια της κίνησης της κάμερας (αγνοούνται)
+        }
+      );
+    }
+
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(console.error);
+      }
+    };
+  }, [scanning]);
+
+  return (
+    <div className="bg-white/3 border border-white/8 rounded-2xl p-6 flex flex-col items-center justify-center max-w-md mx-auto text-center space-y-4">
+      <div className="w-12 h-12 rounded-xl bg-purple-600/20 flex items-center justify-center text-purple-400">
+        <Scan size={24} />
+      </div>
+      <div>
+        <h3 className="text-lg font-bold text-white">Σκανάρισμα QR Code</h3>
+        <p className="text-gray-500 text-xs mt-1">Χρησιμοποίησε την κάμερα για να ελέγξεις και να διαγράψεις τα έγκυρα εισιτήρια στην είσοδο.</p>
+      </div>
+
+      {!scanning && !scanResult && (
+        <button onClick={() => setScanning(true)}
+          className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 rounded-xl transition">
+          Άνοιγμα Κάμερας
+        </button>
+      )}
+
+      {scanning && (
+        <div className="w-full bg-black border border-white/10 rounded-xl overflow-hidden p-2">
+          <div id="qr-reader" className="w-full"></div>
+          <button onClick={() => setScanning(false)}
+            className="mt-2 w-full bg-white/5 hover:bg-white/10 text-gray-400 py-2 rounded-lg text-xs transition">
+            Κλείσιμο Κάμερας
+          </button>
+        </div>
+      )}
+
+      {scanResult && (
+        <div className={`w-full p-4 border rounded-xl text-sm whitespace-pre-line text-left ${scanResult.success ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+          <p className="font-bold mb-3">{scanResult.message}</p>
+          <button onClick={() => { setScanResult(null); setScanning(true); }}
+            className="w-full bg-white/10 hover:bg-white/15 text-white py-2 rounded-lg text-xs font-bold transition text-center block">
+            Σκανάρισμα Επόμενου
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── ARTIST FORM ───────────────────────────────────────────────────
 function ArtistForm({ initial, onSave, onCancel }: {
   initial: Partial<Artist>;
@@ -139,7 +253,6 @@ function ArtistForm({ initial, onSave, onCancel }: {
   const [tab, setTab] = useState<'basic' | 'event' | 'tickets' | 'visual'>('basic');
 
   const set = (k: keyof Artist, v: any) => setForm(f => ({ ...f, [k]: v }));
-
   const autoSlug = (name: string) => name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
   const handleSave = async () => {
@@ -219,22 +332,22 @@ function ArtistForm({ initial, onSave, onCancel }: {
             <>
               <Field label="Ημερομηνία">
                 <input value={form.event_date || ''} onChange={e => set('event_date', e.target.value)}
-                  className={input} placeholder="π.χ. 15 Αυγούστου 2026 ή TBA" />
+                  className={input} placeholder="π.χ. 15 Αυγούστου 2026" />
               </Field>
               <Field label="Ώρα">
                 <input value={form.event_time || ''} onChange={e => set('event_time', e.target.value)}
-                  className={input} placeholder="π.χ. 22:00 ή TBA" />
+                  className={input} placeholder="π.χ. 22:00" />
               </Field>
               <Field label="Όνομα Τοποθεσίας (Venue)">
                 <input value={form.event_venue || ''} onChange={e => set('event_venue', e.target.value)}
                   className={input} placeholder="π.χ. Πύλη Βηθλεέμ, Ηράκλειο" />
               </Field>
               <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
-                <Field label="Venue Latitude (π.χ. 35.3387)">
+                <Field label="Venue Latitude">
                   <input type="number" step="any" value={form.venue_lat ?? ''} onChange={e => set('venue_lat', e.target.value ? Number(e.target.value) : null)}
                     className={input} placeholder="35.3387" />
                 </Field>
-                <Field label="Venue Longitude (π.w. 25.1442)">
+                <Field label="Venue Longitude">
                   <input type="number" step="any" value={form.venue_lng ?? ''} onChange={e => set('venue_lng', e.target.value ? Number(e.target.value) : null)}
                     className={input} placeholder="25.1442" />
                 </Field>
@@ -246,11 +359,11 @@ function ArtistForm({ initial, onSave, onCancel }: {
             <>
               <Field label="Τιμή Εισιτηρίου (€)">
                 <input type="number" value={form.ticket_price ?? ''} onChange={e => set('ticket_price', e.target.value ? Number(e.target.value) : null)}
-                  className={input} placeholder="π.χ. 25" min={0} />
+                  className={input} placeholder="25" min={0} />
               </Field>
               <Field label="Διαθέσιμα Εισιτήρια">
                 <input type="number" value={form.tickets_available ?? ''} onChange={e => set('tickets_available', e.target.value ? Number(e.target.value) : null)}
-                  className={input} placeholder="π.χ. 500" min={0} />
+                  className={input} placeholder="500" min={0} />
               </Field>
               <Field label="Πωλήθηκαν">
                 <input type="number" value={form.tickets_sold || 0} onChange={e => set('tickets_sold', Number(e.target.value))}
@@ -339,6 +452,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [currentView, setCurrentView] = useState<'artists' | 'scanner'>('artists');
   const [artists, setArtists] = useState<Artist[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -378,7 +492,6 @@ export default function AdminPage() {
 
   const handleSave = async (data: Partial<Artist>) => {
     setLoading(true);
-    
     const { id, ...cleanData } = data;
     const payload = {
       ...cleanData,
@@ -393,7 +506,6 @@ export default function AdminPage() {
     if (id) {
       const { error } = await supabase.from('artists').update(payload).eq('id', id);
       if (error) { 
-        console.error(error);
         showToast('Σφάλμα αποθήκευσης: ' + error.message, 'error'); 
         setLoading(false);
         return; 
@@ -402,7 +514,6 @@ export default function AdminPage() {
     } else {
       const { error } = await supabase.from('artists').insert([payload]);
       if (error) { 
-        console.error(error);
         showToast('Σφάλμα δημιουργίας: ' + error.message, 'error'); 
         setLoading(false);
         return; 
@@ -445,14 +556,28 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
+      {/* HEADER */}
       <div className="sticky top-0 z-30 bg-black/90 backdrop-blur-md border-b border-white/8 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center">
-            <Shield size={16} className="text-white" />
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center">
+              <Shield size={16} className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-white font-black text-sm">Admin Panel</h1>
+              <p className="text-gray-500 text-[10px]">Heraklion is Alive</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-white font-black text-sm">Admin Panel</h1>
-            <p className="text-gray-500 text-[10px]">Heraklion is Alive</p>
+          {/* VIEW SWITCHER TABS */}
+          <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
+            <button onClick={() => setCurrentView('artists')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${currentView === 'artists' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}>
+              <Music size={12} /> Artists
+            </button>
+            <button onClick={() => setCurrentView('scanner')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${currentView === 'scanner' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}>
+              <Scan size={12} /> Έλεγχος QR
+            </button>
           </div>
         </div>
         <button onClick={handleLogout} className="flex items-center gap-2 text-gray-500 hover:text-white text-xs transition">
@@ -461,6 +586,7 @@ export default function AdminPage() {
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
+        {/* STATS CARDS */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: 'Artists', value: artists.length, icon: Music, color: 'text-purple-400' },
@@ -479,95 +605,96 @@ export default function AdminPage() {
           })}
         </div>
 
-        <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-white/8">
-            <h2 className="font-black text-white">Artists</h2>
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                <input value={search} onChange={e => setSearch(e.target.value)}
-                  placeholder="Αναζήτηση..." className="bg-white/5 border border-white/8 rounded-xl pl-8 pr-4 py-2 text-xs text-white focus:outline-none focus:border-purple-500 w-40" />
+        {/* MAIN VIEWS */}
+        {currentView === 'scanner' ? (
+          <QrTicketScanner onScanSuccess={(msg, type) => showToast(msg, type)} />
+        ) : (
+          <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/8">
+              <h2 className="font-black text-white">Artists</h2>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                  <input value={search} onChange={e => setSearch(e.target.value)}
+                    placeholder="Αναζήτηση..." className="bg-white/5 border border-white/8 rounded-xl pl-8 pr-4 py-2 text-xs text-white focus:outline-none focus:border-purple-500 w-40" />
+                </div>
+                <button onClick={() => setEditingArtist({})}
+                  className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 transition">
+                  <Plus size={14} /> Νέος Artist
+                </button>
               </div>
-              <button onClick={() => setEditingArtist({})}
-                className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 transition">
-                <Plus size={14} /> Νέος Artist
-              </button>
             </div>
+
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 size={24} className="animate-spin text-purple-500" />
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="text-center py-16 text-gray-600">
+                <Music size={32} className="mx-auto mb-3 opacity-30" />
+                <p className="text-sm">Δεν βρέθηκαν artists</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-white/5">
+                {filtered.map(artist => (
+                  <motion.div key={artist.id} layout className="flex items-center gap-4 px-6 py-4 hover:bg-white/3 transition group">
+                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-zinc-800 flex-shrink-0">
+                      {artist.image
+                        ? <img src={artist.image} className="w-full h-full object-cover" />
+                        : <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-400">{artist.name[0]}</div>}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-bold text-white truncate">{artist.name}</p>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full bg-gradient-to-r ${artist.tag_color} text-white`}>
+                          {artist.tag}
+                        </span>
+                        {!artist.is_published && <span className="text-[10px] text-gray-600 font-bold">[hidden]</span>}
+                      </div>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                          <Calendar size={10} />{artist.event_date || 'TBA'}
+                        </span>
+                        <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                          <MapPin size={10} />{artist.event_venue || '—'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                      <button onClick={() => handleTogglePublish(artist)}
+                        className={`p-2 rounded-lg transition ${artist.is_published ? 'text-green-400 hover:bg-green-400/10' : 'text-gray-600 hover:bg-white/5'}`}>
+                        {artist.is_published ? <Eye size={15} /> : <EyeOff size={15} />}
+                      </button>
+                      <button onClick={() => setEditingArtist(artist)}
+                        className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition">
+                        <Edit3 size={15} />
+                      </button>
+                      <button onClick={() => handleDelete(artist)}
+                        className="p-2 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-400/10 transition">
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            )}
           </div>
-
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 size={24} className="animate-spin text-purple-500" />
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="text-center py-16 text-gray-600">
-              <Music size={32} className="mx-auto mb-3 opacity-30" />
-              <p className="text-sm">Δεν βρέθηκαν artists</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-white/5">
-              {filtered.map(artist => (
-                <motion.div key={artist.id} layout
-                  className="flex items-center gap-4 px-6 py-4 hover:bg-white/3 transition group">
-                  <div className="w-10 h-10 rounded-xl overflow-hidden bg-zinc-800 flex-shrink-0">
-                    {artist.image
-                      ? <img src={artist.image} className="w-full h-full object-cover" />
-                      : <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-400">{artist.name[0]}</div>}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-bold text-white truncate">{artist.name}</p>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full bg-gradient-to-r ${artist.tag_color} text-white`}>
-                        {artist.tag}
-                      </span>
-                      {!artist.is_published && <span className="text-[10px] text-gray-600 font-bold">[hidden]</span>}
-                    </div>
-                    <div className="flex items-center gap-3 mt-0.5">
-                      <span className="text-[11px] text-gray-500 flex items-center gap-1">
-                        <Calendar size={10} />{artist.event_date || 'TBA'}
-                      </span>
-                      <span className="text-[11px] text-gray-500 flex items-center gap-1">
-                        <MapPin size={10} />{artist.event_venue || '—'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
-                    <button onClick={() => handleTogglePublish(artist)}
-                      className={`p-2 rounded-lg transition ${artist.is_published ? 'text-green-400 hover:bg-green-400/10' : 'text-gray-600 hover:bg-white/5'}`}>
-                      {artist.is_published ? <Eye size={15} /> : <EyeOff size={15} />}
-                    </button>
-                    <button onClick={() => setEditingArtist(artist)}
-                      className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition">
-                      <Edit3 size={15} />
-                    </button>
-                    <button onClick={() => handleDelete(artist)}
-                      className="p-2 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-400/10 transition">
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
+      {/* MODALS & TOAST */}
       <AnimatePresence>
         {editingArtist !== null && (
-          <ArtistForm
-            initial={editingArtist}
-            onSave={handleSave}
-            onCancel={() => setEditingArtist(null)}
-          />
+          <ArtistForm initial={editingArtist} onSave={handleSave} onCancel={() => setEditingArtist(null)} />
         )}
       </AnimatePresence>
 
       <AnimatePresence>
         {toast && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
-            className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-3 rounded-2xl text-sm font-bold shadow-2xl ${toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
+            className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-3 rounded-2xl text-sm font-bold shadow-2xl z-50 ${toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
             {toast.msg}
           </motion.div>
         )}
