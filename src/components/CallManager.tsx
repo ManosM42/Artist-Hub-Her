@@ -12,6 +12,8 @@ interface CallState {
   status: 'ringing' | 'accepted' | 'rejected' | 'ended';
   sender_sdp?: any;
   receiver_sdp?: any;
+  sender_candidates?: any[];
+  receiver_candidates?: any[];
   profile?: { username: string; avatar_url: string | null };
 }
 
@@ -26,6 +28,7 @@ export default function CallManager({ onCallRequest }: { onCallRequest: (fn: any
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
+  // Σύνδεση με το CommunityPage
   useEffect(() => {
     onCallRequest(startCall);
   }, [user]);
@@ -49,16 +52,31 @@ export default function CallManager({ onCallRequest }: { onCallRequest: (fn: any
         if (payload.eventType === 'UPDATE' && call && data.id === call.id) {
           if (data.status === 'rejected' || data.status === 'ended') {
             cleanUpCall();
+            return;
           } 
           
-          // Ο Receiver απάντησε, ο Sender επεξεργάζεται το Answer
-          else if (data.status === 'accepted' && data.sender_id === user.id && data.receiver_sdp && !pcRef.current?.remoteDescription) {
+          // Ο Sender λαμβάνει το Answer του Receiver
+          if (data.status === 'accepted' && data.sender_id === user.id && data.receiver_sdp && !pcRef.current?.remoteDescription) {
             await pcRef.current?.setRemoteDescription(new RTCSessionDescription(data.receiver_sdp));
           }
           
-          // Ο Receiver ακούει το Offer που έστειλε ο Sender
-          else if (data.status === 'accepted' && data.receiver_id === user.id && data.sender_sdp && !pcRef.current?.remoteDescription) {
-            handleIncomingOffer(data.sender_sdp);
+          // Ο Receiver λαμβάνει το Offer του Sender
+          if (data.status === 'accepted' && data.receiver_id === user.id && data.sender_sdp && !pcRef.current?.remoteDescription) {
+            handleIncomingOffer(data);
+          }
+
+          // Ανταλλαγή ICE Candidates (Sender πλευρά)
+          if (data.status === 'accepted' && data.sender_id === user.id && data.receiver_candidates?.length) {
+            data.receiver_candidates.forEach(async (cand) => {
+              try { if (pcRef.current?.remoteDescription) await pcRef.current.addIceCandidate(new RTCIceCandidate(cand)); } catch(e){}
+            });
+          }
+
+          // Ανταλλαγή ICE Candidates (Receiver πλευρά)
+          if (data.status === 'accepted' && data.receiver_id === user.id && data.sender_candidates?.length) {
+            data.sender_candidates.forEach(async (cand) => {
+              try { if (pcRef.current?.remoteDescription) await pcRef.current.addIceCandidate(new RTCIceCandidate(cand)); } catch(e){}
+            });
           }
 
           setCall(prev => prev ? { ...prev, status: data.status } : null);
@@ -84,9 +102,12 @@ export default function CallManager({ onCallRequest }: { onCallRequest: (fn: any
     }
   };
 
-  const createPeerConnection = (stream: MediaStream) => {
+  const createPeerConnection = (stream: MediaStream, callId: string, isSender: boolean) => {
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19002' }]
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19002' },
+        { urls: 'stun:stun1.l.google.com:19002' }
+      ]
     });
 
     stream.getTracks().forEach(track => {
@@ -96,6 +117,23 @@ export default function CallManager({ onCallRequest }: { onCallRequest: (fn: any
     pc.ontrack = (event) => {
       if (remoteVideoRef.current && event.streams[0]) {
         remoteVideoRef.current.srcObject = event.streams[0];
+      }
+    };
+
+    // Μόλις το WebRTC βρει ένα ICE Candidate, το σπρώχνει στη Supabase
+    pc.onicecandidate = async (event) => {
+      if (!event.candidate) return;
+
+      // Παίρνουμε τα τρέχοντα candidates από τη βάση για να μην τα σβήσουμε
+      const { data: currentCall } = await supabase.from('calls').select('*').eq('id', callId).single();
+      if (!currentCall) return;
+
+      if (isSender) {
+        const list = currentCall.sender_candidates || [];
+        await supabase.from('calls').update({ sender_candidates: [...list, event.candidate.toJSON()] }).eq('id', callId);
+      } else {
+        const list = currentCall.receiver_candidates || [];
+        await supabase.from('calls').update({ receiver_candidates: [...list, event.candidate.toJSON()] }).eq('id', callId);
       }
     };
 
@@ -110,44 +148,45 @@ export default function CallManager({ onCallRequest }: { onCallRequest: (fn: any
     const stream = await setupLocalStream(type);
     if (!stream) return;
 
-    const pc = createPeerConnection(stream);
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
+    // Δημιουργούμε πρώτα το record για να έχουμε call ID
     const { data, error } = await supabase.from('calls').insert({
       sender_id: user.id,
       receiver_id: receiverId,
       type,
-      status: 'ringing',
-      sender_sdp: offer
+      status: 'ringing'
     }).select().single();
 
-    if (!error && data) {
-      setCall({ ...data, profile: { username, avatar_url: avatar } });
-    }
+    if (error || !data) return;
+
+    const pc = createPeerConnection(stream, data.id, true);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    // Ανεβάζουμε το SDP Offer
+    await supabase.from('calls').update({ sender_sdp: offer }).eq('id', data.id);
+    setCall({ ...data, profile: { username, avatar_url: avatar } });
   };
 
-  // 2. Ο Receiver αποδέχεται την κλήση
+  // 2. Ο Receiver πατάει Αποδοχή
   const acceptCall = async () => {
     if (!call) return;
     const stream = await setupLocalStream(call.type);
     if (!stream) return;
 
-    // Ενημερώνουμε τη βάση ότι έγινε αποδοχή για να triggerάρουμε το fetch του Offer
     await supabase.from('calls').update({ status: 'accepted' }).eq('id', call.id);
   };
 
-  // 3. Ο Receiver επεξεργάζεται το Offer και στέλνει το Answer
-  const handleIncomingOffer = async (senderSdp: any) => {
-    if (!call || !localStreamRef.current) return;
+  // 3. Ο Receiver επεξεργάζεται το Offer και απαντάει με Answer
+  const handleIncomingOffer = async (callData: CallState) => {
+    if (!localStreamRef.current) return;
     
-    const pc = createPeerConnection(localStreamRef.current);
-    await pc.setRemoteDescription(new RTCSessionDescription(senderSdp));
+    const pc = createPeerConnection(localStreamRef.current, callData.id, false);
+    await pc.setRemoteDescription(new RTCSessionDescription(callData.sender_sdp));
     
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    await supabase.from('calls').update({ receiver_sdp: answer }).eq('id', call.id);
+    await supabase.from('calls').update({ receiver_sdp: answer }).eq('id', callData.id);
   };
 
   const rejectCall = async () => {
@@ -228,7 +267,7 @@ export default function CallManager({ onCallRequest }: { onCallRequest: (fn: any
 
             <div className="absolute bottom-10 left-1/2 transform -translate-x-1/2 px-6 py-3 bg-zinc-900/80 border border-white/10 backdrop-blur-xl rounded-full flex items-center gap-6 z-30">
               {call.type === 'video' && (
-                <button onClick={toggleCam} className={`p-3 rounded-full transition ${isCamOff ? 'bg-red-500/30 text-red-400' : 'bg-white/10 text-white hover:bg-white/20'}`}>{isCamOff ? <VideoOff size={18} /> : <Video size={18}px />}</button>
+                <button onClick={toggleCam} className={`p-3 rounded-full transition ${isCamOff ? 'bg-red-500/30 text-red-400' : 'bg-white/10 text-white hover:bg-white/20'}`}>{isCamOff ? <VideoOff size={18} /> : <Video size={18} />}</button>
               )}
               <button onClick={toggleMute} className={`p-3 rounded-full transition ${isMuted ? 'bg-red-500/30 text-red-400' : 'bg-white/10 text-white hover:bg-white/20'}`}>{isMuted ? <MicOff size={18} /> : <Mic size={18} />}</button>
               <button onClick={endCall} className="p-3 bg-red-600 hover:bg-red-500 rounded-full transition text-white"><PhoneOff size={18} /></button>
