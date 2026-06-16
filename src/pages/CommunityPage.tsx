@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, X, MessageCircle, ChevronLeft, Users, Loader2, Plus, Image, Mic, Trash2, Phone, Video } from 'lucide-react';import { useNavigate, useLocation } from 'react-router-dom';
+import { Send, X, MessageCircle, ChevronLeft, Users, Loader2, Plus, Image, Mic, Trash2, Phone, Video } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import Navbar from '@/components/Navbar';
@@ -72,7 +73,6 @@ function InboxPanel({ onClose, initialChat, onStartCall }: {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
-  // Preview φωτογραφίας πριν αποστολή
   const [imagePreview, setImagePreview] = useState<{ file: File; url: string } | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -195,11 +195,9 @@ function InboxPanel({ onClose, initialChat, onStartCall }: {
       receiver_id: activeConv.profile.id,
       content: t,
     });
-    if (error) console.error('Send text error:', error);
-    else { fetchMessages(activeConv.profile.id); fetchConversations(); }
+    if (!error) { fetchMessages(activeConv.profile.id); fetchConversations(); }
   };
 
-  // Επιλογή αρχείου → preview (χωρίς άμεση αποστολή)
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -208,7 +206,6 @@ function InboxPanel({ onClose, initialChat, onStartCall }: {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Αποστολή μετά το preview
   const handleSendImage = async () => {
     if (!imagePreview || !user || !activeConv) return;
     setSendingMedia(true);
@@ -222,12 +219,11 @@ function InboxPanel({ onClose, initialChat, onStartCall }: {
 
       const { data } = supabase.storage.from('messages').getPublicUrl(path);
 
-      const { error: insertError } = await supabase.from('messages').insert({
+      await supabase.from('messages').insert({
         sender_id: user.id,
         receiver_id: activeConv.profile.id,
         image_url: data.publicUrl,
       });
-      if (insertError) throw insertError;
 
       setImagePreview(null);
       fetchMessages(activeConv.profile.id);
@@ -276,12 +272,11 @@ function InboxPanel({ onClose, initialChat, onStartCall }: {
 
         const { data } = supabase.storage.from('messages').getPublicUrl(path);
 
-        const { error: insertError } = await supabase.from('messages').insert({
+        await supabase.from('messages').insert({
           sender_id: user?.id,
           receiver_id: activeConv!.profile.id,
           audio_url: data.publicUrl,
         });
-        if (insertError) throw insertError;
 
         fetchMessages(activeConv!.profile.id);
         fetchConversations();
@@ -311,23 +306,22 @@ function InboxPanel({ onClose, initialChat, onStartCall }: {
       className="fixed top-16 right-4 z-40 w-80 md:w-96 rounded-2xl overflow-hidden border border-white/10 shadow-2xl flex flex-col"
       style={{ height: 'calc(100vh - 88px)', background: 'linear-gradient(180deg, rgba(10,5,20,0.99), rgba(0,0,0,0.99))' }}
     >
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/8">
-          {activeConv ? (
+        {activeConv ? (
           <div className="flex items-center gap-2 flex-1">
             <button onClick={() => setActiveConv(null)} className="flex items-center gap-2 text-gray-300 hover:text-white transition">
               <ChevronLeft size={18} />
               <span className="text-white text-sm font-bold">@{activeConv.profile.username}</span>
             </button>
-            <div className="flex items-center gap-2 ml-auto mr-2">
+            <div className="flex items-center gap-1.5 ml-auto mr-2">
               <button
                 onClick={() => onStartCall?.(activeConv.profile.id, activeConv.profile.username, activeConv.profile.avatar_url, 'audio')}
-                className="text-gray-400 hover:text-green-400 transition p-1" title="Audio Call">
+                className="text-gray-400 hover:text-green-400 transition p-1.5 rounded-full hover:bg-white/5">
                 <Phone size={15} />
               </button>
               <button
                 onClick={() => onStartCall?.(activeConv.profile.id, activeConv.profile.username, activeConv.profile.avatar_url, 'video')}
-                className="text-gray-400 hover:text-purple-400 transition p-1" title="Video Call">
+                className="text-gray-400 hover:text-purple-400 transition p-1.5 rounded-full hover:bg-white/5">
                 <Video size={15} />
               </button>
             </div>
@@ -376,7 +370,6 @@ function InboxPanel({ onClose, initialChat, onStartCall }: {
         </>
       ) : (
         <>
-          {/* Chat messages */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
             {messages.map(msg => {
               const isMine = msg.sender_id === user?.id;
@@ -393,7 +386,6 @@ function InboxPanel({ onClose, initialChat, onStartCall }: {
             <div ref={bottomRef} />
           </div>
 
-          {/* Image Preview Modal */}
           <AnimatePresence>
             {imagePreview && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -401,36 +393,28 @@ function InboxPanel({ onClose, initialChat, onStartCall }: {
                 <p className="text-xs text-gray-400 font-bold">Preview φωτογραφίας</p>
                 <img src={imagePreview.url} alt="Preview" className="max-h-64 max-w-full rounded-2xl object-contain border border-white/10" />
                 <div className="flex gap-3">
-                  <button onClick={() => setImagePreview(null)}
-                    className="px-5 py-2 rounded-full bg-white/10 text-xs text-gray-300 hover:bg-white/20 transition">
-                    Ακύρωση
-                  </button>
-                  <button onClick={handleSendImage} disabled={sendingMedia}
-                    className="px-5 py-2 rounded-full bg-purple-600 hover:bg-purple-500 text-xs text-white font-bold flex items-center gap-2 disabled:opacity-50 transition">
-                    {sendingMedia ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
-                    Αποστολή
+                  <button onClick={() => setImagePreview(null)} className="px-5 py-2 rounded-full bg-white/10 text-xs text-gray-300 hover:bg-white/20 transition">Ακύρωση</button>
+                  <button onClick={handleSendImage} disabled={sendingMedia} className="px-5 py-2 rounded-full bg-purple-600 hover:bg-purple-500 text-xs text-white font-bold flex items-center gap-2 disabled:opacity-50 transition">
+                    {sendingMedia ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Αποστολή
                   </button>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Input bar */}
           <div className="p-3 border-t border-white/8 bg-zinc-950 flex items-center gap-2 relative">
             <input type="file" ref={fileInputRef} accept="image/*" onChange={handleImageSelect} className="hidden" />
 
             <AnimatePresence>
               {isRecording && (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-                  className="absolute inset-0 bg-zinc-950 px-4 flex items-center justify-between z-10">
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="absolute inset-0 bg-zinc-950 px-4 flex items-center justify-between z-10">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                     <span className="text-xs font-mono font-bold text-red-400">Εγγραφή {formatTime(recordingSeconds)}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <button onClick={() => stopRecording(false)} className="text-gray-500 hover:text-red-500 transition p-1"><Trash2 size={16} /></button>
-                    <button onClick={() => stopRecording(true)}
-                      className="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3 py-1 rounded-full font-bold flex items-center gap-1">
+                    <button onClick={() => stopRecording(true)} className="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3 py-1 rounded-full font-bold flex items-center gap-1">
                       {sendingMedia ? <Loader2 size={12} className="animate-spin" /> : <><Send size={12} /> Αποστολή</>}
                     </button>
                   </div>
@@ -438,13 +422,11 @@ function InboxPanel({ onClose, initialChat, onStartCall }: {
               )}
             </AnimatePresence>
 
-            <button disabled={sendingMedia} onClick={() => fileInputRef.current?.click()}
-              className="text-gray-400 hover:text-purple-400 p-1 transition disabled:opacity-30">
+            <button disabled={sendingMedia} onClick={() => fileInputRef.current?.click()} className="text-gray-400 hover:text-purple-400 p-1 transition disabled:opacity-30">
               {sendingMedia ? <Loader2 size={16} className="animate-spin text-purple-500" /> : <Image size={16} />}
             </button>
 
-            <button onClick={startRecording} disabled={isRecording}
-              className="text-gray-400 hover:text-purple-400 p-1 transition disabled:opacity-30">
+            <button onClick={startRecording} disabled={isRecording} className="text-gray-400 hover:text-purple-400 p-1 transition disabled:opacity-30">
               <Mic size={16} />
             </button>
 
@@ -455,10 +437,7 @@ function InboxPanel({ onClose, initialChat, onStartCall }: {
               className="flex-1 bg-white/5 border border-white/8 rounded-full px-4 py-1.5 text-xs text-white placeholder:text-gray-600 focus:outline-none focus:border-purple-500 transition"
             />
 
-            <button onClick={handleSendText} disabled={!text.trim()}
-              className="text-purple-400 hover:text-purple-300 disabled:opacity-20 font-bold text-xs px-1">
-              Send
-            </button>
+            <button onClick={handleSendText} disabled={!text.trim()} className="text-purple-400 hover:text-purple-300 disabled:opacity-20 font-bold text-xs px-1">Send</button>
           </div>
         </>
       )}
@@ -617,7 +596,9 @@ export default function CommunityPage() {
       <AnimatePresence>{createOpen && <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80"><motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="w-full max-w-md"><CreatePost onCreated={() => { setCreateOpen(false); fetchPosts(); }} /></motion.div></div>}</AnimatePresence>
       <AnimatePresence>{activeCommentsPostId && <><div className="fixed inset-0 bg-black/50 z-40" onClick={() => setActiveCommentsPostId(null)} /><CommentsDrawer postId={activeCommentsPostId} onClose={() => { setActiveCommentsPostId(null); fetchPosts(); }} /></>}</AnimatePresence>
       <AnimatePresence>{inboxOpen && <InboxPanel onClose={() => { setInboxOpen(false); if(user) fetchUnreadCount(); }} initialChat={location.state?.openChatWith || null} onStartCall={(userId, username, avatar, type) => startCallRef.current?.(userId, username, avatar, type)} />}</AnimatePresence>
-            <CallManager onCallRequest={(fn) => { startCallRef.current = fn; }} />
+      
+      {/* Ο CallManager τοποθετείται global στην κορυφή του δέντρου */}
+      <CallManager onCallRequest={(fn) => { startCallRef.current = fn; }} />
     </div>
   );
 }
