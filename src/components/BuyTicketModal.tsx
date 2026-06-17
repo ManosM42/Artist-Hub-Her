@@ -21,17 +21,25 @@ interface ArtistPricing {
   event_venue: string | null;
 }
 
-// ── ΣΥΝΑΡΤΗΣΗ ΑΠΟΣΤΟΛΗΣ EMAIL ΜΕΣΩ RESEND ──
-async function sendTicketEmail(buyerEmail: string, buyerName: string, artistSlug: string, artistName: string, quantity: number, total: string) {
+// ── ΣΥΝΑΡΤΗΣΗ ΑΠΟΣΤΟΛΗΣ EMAIL ΜΕΣΩ RESEND (Πλέον παίρνει και το ticketCode) ──
+async function sendTicketEmail(
+  buyerEmail: string, 
+  buyerName: string, 
+  artistSlug: string, 
+  artistName: string, 
+  quantity: number, 
+  total: string,
+  ticketCode: string
+) {
   try {
     const { data, error } = await supabase.functions.invoke('send-ticket-email', {
-      body: { buyerEmail, buyerName, artistSlug, artistName, quantity, total }
+      body: { buyerEmail, buyerName, artistSlug, artistName, quantity, total, ticketCode }
     });
 
     if (error) throw error;
-    console.log("🎉 Τα εισιτήρια δημιουργήθηκαν και στάλθηκαν:", data);
+    console.log("🎉 Το email στάλθηκε με επιτυχία:", data);
   } catch (error) {
-    console.error("❌ Σφάλμα κατά τη δημιουργία των εισιτηρίων:", error);
+    console.error("❌ Σφάλμα κατά την αποστολή του email:", error);
   }
 }
 
@@ -73,7 +81,7 @@ function CheckoutForm({ artist, pricing, quantity, onSuccess }: {
       setError(confirmError.message ?? 'Payment failed');
       setLoading(false);
     } else {
-      onSuccess(); // Πυροδοτεί το step success και το email
+      onSuccess(); // Πυροδοτεί το βήμα επιτυχίας
     }
   };
 
@@ -116,6 +124,7 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
   const [email, setEmail] = useState('');
   const [pricing, setPricing] = useState<ArtistPricing | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [ticketCode, setTicketCode] = useState<string | null>(null); // Κρατάει τον κωδικό που φτιάχνει η Edge Function
   const [step, setStep] = useState<'info' | 'payment' | 'success'>('info');
   const [loadingIntent, setLoadingIntent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,7 +137,11 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
   }, [user]);
 
   useEffect(() => {
-    if (!open) { setStep('info'); setClientSecret(null); }
+    if (!open) { 
+      setStep('info'); 
+      setClientSecret(null); 
+      setTicketCode(null); 
+    }
   }, [open]);
 
   useEffect(() => {
@@ -165,7 +178,9 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
       });
 
       if (fnError) throw fnError;
+      
       setClientSecret(data.clientSecret);
+      setTicketCode(data.ticketCode); // Αποθήκευση του μοναδικού κωδικού
       setStep('payment');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Σφάλμα. Δοκιμάστε ξανά.');
@@ -177,13 +192,14 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
   const price = pricing?.ticket_price ?? 0;
   const total = (price * quantity).toFixed(2);
 
-  // Αυτό τρέχει ΜΟΛΙΣ η πληρωμή πετύχει
+  // Αυτό τρέχει ΜΟΛΙΣ η πληρωμή ολοκληρωθεί με επιτυχία
   const handlePaymentSuccess = async () => {
-  setStep('success');
-  
-  // Κλήση της function περνώντας και το artist.slug
-  await sendTicketEmail(email.trim(), name.trim(), artist.slug, artist.name, quantity, total);
-};
+    setStep('success');
+    if (ticketCode) {
+      await sendTicketEmail(email.trim(), name.trim(), artist.slug, artist.name, quantity, total, ticketCode);
+    }
+  };
+
   return (
     <AnimatePresence>
       {open && (
@@ -225,7 +241,6 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
 
               {step === 'info' && (
                 <>
-                  {/* Quantity, Name, Email Inputs (Όπως πριν)... */}
                   <div className="mt-6">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Ποσότητα</label>
                     <div className="flex items-center justify-between mt-2 p-2 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
