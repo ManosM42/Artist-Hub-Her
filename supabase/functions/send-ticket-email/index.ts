@@ -106,7 +106,7 @@ serve(async (req) => {
             color: white; font-size: 10px; font-weight: 800;
             padding: 4px 12px; border-radius: 20px;
             letter-spacing: 1px; text-transform: uppercase;
-          ">HERAKLION IS ALIVE</div>
+          ">Artist Hub Heraklion</div>
 
           <!-- Ticket number top-right -->
           <div style="
