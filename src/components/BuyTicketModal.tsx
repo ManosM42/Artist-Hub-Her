@@ -77,6 +77,7 @@ function CheckoutForm({ artist, pricing, quantity, clientSecret, onSuccess }: {
     setLoading(true);
     setError(null);
 
+    // 1. Κάνουμε submit τα στοιχεία της φόρμας
     const { error: submitError } = await elements.submit();
     if (submitError) {
       setError(submitError.message ?? 'Payment failed');
@@ -84,24 +85,25 @@ function CheckoutForm({ artist, pricing, quantity, clientSecret, onSuccess }: {
       return;
     }
 
-    // Επιβεβαίωση ΧΩΡΙΣ αναγκαστικό redirect για να τρέξει ο κώδικάς μας στην ίδια σελίδα
-    const { paymentIntent, error: confirmError } = await stripe.confirmCardPayment(
-      clientSecret, 
-      {
-        payment_method: {
-          card: elements.getElement(PaymentElement)!,
-        },
-      }
-    );
+    // 2. Σωστή επιβεβαίωση για το PaymentElement ΧΩΡΙΣ υποχρεωτικό redirect
+    const { paymentIntent, error: confirmError } = await stripe.confirmPayment({
+      elements,
+      clientSecret,
+      confirmParams: {
+        return_url: `${window.location.origin}/payment-success`,
+      },
+      redirect: 'if_required', // <-- Αυτό αποτρέπει το redirect αν δεν χρειάζεται 3D Secure ταυτοποίηση!
+    });
 
     if (confirmError) {
       setError(confirmError.message ?? 'Payment failed');
       setLoading(false);
     } else if (paymentIntent && paymentIntent.status === 'succeeded') {
-      onSuccess(); // Τώρα θα τρέξει 100% στην ίδια σελίδα και θα δεις τα logs!
+      // 3. Αν η πληρωμή πέτυχε χωρίς redirect, προχωράμε στο email και στο success screen
+      onSuccess(); 
     }
   };
-
+  
   return (
     <div className="mt-5">
       <PaymentElement options={{ layout: 'tabs' }} onReady={() => setIsReady(true)} />
