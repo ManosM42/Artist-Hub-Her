@@ -10,7 +10,7 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
-    // Λήψη των δεδομένων από το Frontend
+    // Παίρνουμε τα στοιχεία. Το ticketCode εδώ είναι το stripe_payment_intent_id που έρχεται από το frontend
     const { buyerEmail, buyerName, artistSlug, artistName, quantity, total, ticketCode } = await req.json()
 
     const supabase = createClient(
@@ -18,27 +18,23 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
-    // 1. UPDATE: Ενημερώνουμε το ήδη υπάρχον pending εισιτήριο σε confirmed
+    // 1. UPDATE: Κάνουμε update χρησιμοποιώντας τη σωστή στήλη (stripe_payment_intent_id)
     const { error: updateError } = await supabase
       .from('tickets')
       .update({ status: 'confirmed' })
-      .eq('ticket_code', ticketCode)
+      .eq('stripe_payment_intent_id', ticketCode) // <- Εδώ έγινε η διόρθωση!
 
     if (updateError) {
       console.error("❌ Supabase DB Update Error:", updateError)
       throw new Error(`Database update failed: ${updateError.message}`)
     }
 
-    // 2. Ανάκτηση στοιχείων του artist για το template του email
-    const { data: artist, error: artistError } = await supabase
+    // 2. Ανάκτηση στοιχείων του artist για το email
+    const { data: artist } = await supabase
       .from('artists')
       .select('image, event_date, event_time, event_venue, ticket_price, ticket_currency, accent')
       .eq('slug', artistSlug)
       .single()
-
-    if (artistError) {
-      console.warn("⚠️ Δεν βρέθηκε ο καλλιτέχνης, χρησιμοποιούνται default τιμές.")
-    }
 
     const artistImage = artist?.image || ''
     const eventDate = artist?.event_date || 'TBA'
@@ -52,7 +48,7 @@ serve(async (req) => {
     const orderTime = new Date().toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit' })
     const orderId = `ORD-${Date.now().toString().slice(-8)}`
 
-    // 3. Χτίσιμο του QR Code URL και του HTML Template
+    // 3. QR Code βασισμένο στο μοναδικό ID της πληρωμής
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(ticketCode)}&bgcolor=ffffff&color=111111&margin=10`
 
     const ticketCardsHtml = `
@@ -88,7 +84,7 @@ serve(async (req) => {
             </div>
             <div style="margin-top: 14px;">
               <div style="color: rgba(255,255,255,0.3); font-size: 9px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px;">ΚΩΔΙΚΟΣ ΕΙΣΙΤΗΡΙΟΥ</div>
-              <div style="color: rgba(255,255,255,0.7); font-family: 'Courier New', monospace; font-size: 14px; font-weight: 700; letter-spacing: 1px; background: rgba(255,255,255,0.05); padding: 6px 14px; border-radius: 8px; display: inline-block;">${ticketCode}</div>
+              <div style="color: rgba(255,255,255,0.7); font-family: 'Courier New', monospace; font-size: 13px; font-weight: 700; letter-spacing: 1px; background: rgba(255,255,255,0.05); padding: 6px 14px; border-radius: 8px; display: inline-block;">${ticketCode}</div>
             </div>
           </div>
         </div>
@@ -101,10 +97,6 @@ serve(async (req) => {
         <div>
           <div style="color: rgba(255,255,255,0.4); font-size: 9px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;">ΑΠΟΔΕΙΞΗ ΑΓΟΡΑΣ</div>
           <div style="color: white; font-size: 18px; font-weight: 800; margin-top: 4px;">#${orderId}</div>
-        </div>
-        <div style="text-align: right;">
-          <div style="color: rgba(255,255,255,0.4); font-size: 11px;">${orderDate}</div>
-          <div style="color: rgba(255,255,255,0.4); font-size: 11px;">${orderTime}</div>
         </div>
       </div>
       <div style="background: #13131f; border: 1px solid rgba(255,255,255,0.08); border-top: none; padding: 0 24px;">
@@ -127,9 +119,6 @@ serve(async (req) => {
     <head><meta charset="utf-8"></head>
     <body style="margin: 0; padding: 0; background: #111827;">
       <div style="background: #111827; padding: 40px 16px; min-height: 100vh;">
-        <div style="text-align: center; margin-bottom: 36px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
-          <h1 style="color: white; font-size: 26px; font-weight: 900;">Τα εισιτήριά σου είναι έτοιμα! 🎉</h1>
-        </div>
         ${ticketCardsHtml}
         ${receiptHtml}
       </div>
@@ -137,7 +126,7 @@ serve(async (req) => {
     </html>
     `;
 
-    // 4. Αποστολή με Resend API και έλεγχος Response Status
+    // 4. Αποστολή με Resend
     const resendApiKey = Deno.env.get('RESEND_API_KEY')
     const resendResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -153,15 +142,10 @@ serve(async (req) => {
       }),
     })
 
-    // Αν το Resend API αποτύχει, διαβάζουμε το σφάλμα και το πετάμε στο Catch block
     if (!resendResponse.ok) {
       const errorData = await resendResponse.json()
-      console.error("❌ Resend API Returned Error:", errorData)
-      throw new Error(`Resend Failed: ${errorData.message || JSON.stringify(errorData)}`)
+      throw new Error(`Resend Failed: ${JSON.stringify(errorData)}`)
     }
-
-    const resendSuccessData = await resendResponse.json()
-    console.log("🎉 Resend Success:", resendSuccessData)
 
     return new Response(JSON.stringify({ success: true, orderId }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -169,7 +153,6 @@ serve(async (req) => {
     })
 
   } catch (error) {
-    console.error('❌ Edge Function caught an error:', error.message)
     return new Response(JSON.stringify({ success: false, error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,
