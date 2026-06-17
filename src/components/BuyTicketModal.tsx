@@ -57,10 +57,12 @@ async function sendTicketEmail(
 }
 
 // ── Inner form (Stripe Context) ──
-function CheckoutForm({ artist, pricing, quantity, onSuccess }: {
+// 💡 Προσθέσαμε το clientSecret στα props για να μπορεί να το διαβάσει η Stripe!
+function CheckoutForm({ artist, pricing, quantity, clientSecret, onSuccess }: {
   artist: Artist;
   pricing: ArtistPricing;
   quantity: number;
+  clientSecret: string;
   onSuccess: () => void;
   onClose: () => void;
 }) {
@@ -82,19 +84,21 @@ function CheckoutForm({ artist, pricing, quantity, onSuccess }: {
       return;
     }
 
-    const { error: confirmError } = await stripe.confirmPayment({
-      elements,
-      confirmParams: {
-        return_url: `${window.location.origin}/payment-success`,
-      },
-      redirect: 'if_required',
-    });
+    // Επιβεβαίωση ΧΩΡΙΣ αναγκαστικό redirect για να τρέξει ο κώδικάς μας στην ίδια σελίδα
+    const { paymentIntent, error: confirmError } = await stripe.confirmCardPayment(
+      clientSecret, 
+      {
+        payment_method: {
+          card: elements.getElement(PaymentElement)!,
+        },
+      }
+    );
 
     if (confirmError) {
       setError(confirmError.message ?? 'Payment failed');
       setLoading(false);
-    } else {
-      onSuccess(); // Πυροδοτεί το βήμα επιτυχίας
+    } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+      onSuccess(); // Τώρα θα τρέξει 100% στην ίδια σελίδα και θα δεις τα logs!
     }
   };
 
@@ -310,7 +314,8 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
 
               {step === 'payment' && clientSecret && (
                 <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'night', variables: { colorPrimary: artist.accent, borderRadius: '12px' } } }}>
-                  <CheckoutForm artist={artist} pricing={pricing!} quantity={quantity} onSuccess={handlePaymentSuccess} onClose={onClose} />
+                  {/* 💡 ΕΔΩ ΠΕΡΝΑΜΕ ΤΟ CLIENT SECRET ΩΣ PROP */}
+                  <CheckoutForm artist={artist} pricing={pricing!} quantity={quantity} clientSecret={clientSecret} onSuccess={handlePaymentSuccess} onClose={onClose} />
                 </Elements>
               )}
 
