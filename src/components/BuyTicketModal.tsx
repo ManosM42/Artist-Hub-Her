@@ -28,7 +28,9 @@ async function sendTicketEmail(
   artistName: string, 
   quantity: number, 
   total: string,
-  ticketCode: string
+  ticketCode: string,
+  setStep: (step: string) => void, // Πρόσθεσε αυτά τα states αν θέλεις να αλλάζεις την οθόνη
+  setCustomMessage: (msg: string) => void 
 ) {
   try {
     console.log("⏳ Κλήση της Edge Function send-ticket-email...");
@@ -37,14 +39,27 @@ async function sendTicketEmail(
       body: { buyerEmail, buyerName, artistSlug, artistName, quantity, total, ticketCode }
     });
 
-    if (error) {
-      console.error("❌ Η Edge Function επέστρεψε σφάλμα:", error);
+    // 1. Έλεγχος αν απέτυχε η κλήση HTTP ή αν η function επέστρεψε success: false
+    if (error || !data || data.success === false) {
+      console.log("❌ Αποτυχία έκδοσης εισιτηρίου");
+      console.error("Λεπτομέρειες σφάλματος:", error || data?.message);
+      
+      setCustomMessage(data?.message || "Αποτυχία έκδοσης εισιτήριου");
+      setStep('error'); // Ή το αντίστοιχο state που έχεις για το error screen
       return;
     }
 
-    console.log("🎉 Απάντηση από Edge Function:", data);
-  } catch (error) {
+    // 2. Αν όλα πήγαν καλά (success: true)
+    console.log("🎉", data.message); // Θα τυπώσει: "Επιτυχής έκδοση εισιτήριου και sent email"
+    
+    setCustomMessage(data.message);
+    setStep('success'); // Αλλάζει το modal στην οθόνη επιτυχίας
+    
+  } catch (error: any) {
+    console.log("❌ Αποτυχία έκδοσης εισιτηρίου");
     console.error("❌ Κρίσιμο σφάλμα κατά την επικοινωνία με την Function:", error);
+    setCustomMessage("Κρίσιμο σφάλμα κατά την επικοινωνία με τον server.");
+    setStep('error');
   }
 }
 
