@@ -209,19 +209,30 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
   const price = pricing?.ticket_price ?? 0;
   const total = (price * quantity).toFixed(2);
 
-  const handlePaymentSuccess = async () => {
-    // Καλούμε την Edge Function στέλνοντας ΜΟΝΟ αυτά που περιμένει
+  const handlePaymentSuccess = async (paymentIntentId: string) => {
+    // Παίρνουμε τις τιμές απευθείας από τα states, καθαρισμένες από κενά
+    const finalName = name.trim();
+    const finalEmail = email.trim().toLowerCase();
+
+    console.log("📤 Στέλνουμε στην Edge Function:", { finalName, finalEmail, paymentIntentId });
+
+    if (!finalName || !finalEmail) {
+      console.error("❌ Σφάλμα: Το όνομα ή το email είναι κενά στο state!");
+    }
+
     await sendTicketEmail(
-      email.trim(), 
-      name.trim(), 
+      finalEmail, 
+      finalName, 
       artist.slug, 
       artist.name, 
       quantity, 
-      total
+      total,
+      paymentIntentId
     );
     
     setStep('success');
   };
+
   return (
     <AnimatePresence>
       {open && (

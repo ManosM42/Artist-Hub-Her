@@ -144,47 +144,56 @@ function QrTicketScanner({ onScanSuccess }: { onScanSuccess: (msg: string, type:
 
       scannerRef.current.render(
         async (decodedText) => {
-          // 1. Σταματάμε αμέσως το scanner για να μην κάνει διπλό scan
+          // 1. Σταματάμε αμέσως το scanner για αποφυγή διπλού scan
           setScanning(false);
           if (scannerRef.current) {
             scannerRef.current.clear().catch(console.error);
           }
 
           try {
-            // 2. Πλήρης καθαρισμός και αποκωδικοποίηση του QR string
+            // 2. Πλήρης καθαρισμός και απομόνωση του ticket_code
             let rawText = decodeURIComponent(decodedText.trim());
             let cleanCode = rawText;
 
-            // Αν το QR περιέχει URL (π.χ. από το API ή αν το βάλαμε σε link) απομονώνουμε τον κωδικό
+            // Έξυπνη εξαγωγή αν είναι URL με παράμετρο data= (για να πιάσει το SNIK-VA7IJMRZV-9199)
             if (rawText.includes('data=')) {
-              const urlParts = rawText.split('data=');
-              if (urlParts[1]) {
-                cleanCode = urlParts[1].split('&')[0];
+              try {
+                const urlObj = new URL(rawText.startsWith('http') ? rawText : `https://${rawText}`);
+                const dataParam = urlObj.searchParams.get('data');
+                if (dataParam) cleanCode = dataParam;
+              } catch (_) {
+                // Fallback αν το URL string σπάσει
+                const match = rawText.match(/[?&]data=([^&]+)/);
+                if (match && match[1]) cleanCode = match[1];
               }
             } else if (rawText.includes('/')) {
+              // Αν περιέχει slashes, παίρνουμε το τελευταίο element
               const parts = rawText.split('/');
               cleanCode = parts[parts.length - 1] || rawText;
             }
 
-            cleanCode = cleanCode.trim();
+            // Αφαιρούμε τυχόν υπόλοιπα query parameters (&bgcolor κλπ)
+            cleanCode = cleanCode.split('&')[0].trim();
 
-            // 3. Αναζήτηση στη βάση με ilike και wildcards (%) για απόλυτη ασφάλεια έναντι κρυφών κενών
+            console.log("🔍 Scanning code:", cleanCode);
+
+            // 3. Αναζήτηση στη βάση με ακριβές ταίριασμα (.eq) αντί για .ilike
             const { data: ticket, error: fetchError } = await supabase
               .from('tickets')
               .select('*')
-              .ilike('ticket_code', `%${cleanCode}%`)
+              .eq('ticket_code', cleanCode)
               .maybeSingle();
 
             if (fetchError || !ticket) {
               setScanResult({ 
-                message: `❌ ΑΚΥΡΟ ΕΙΣΙΤΗΡΙΟ!\n\nΟ κωδικός [ ${cleanCode} ] δεν αντιστοιχεί σε καμία ενεργή εγγραφή στον πίνακα tickets.`, 
+                message: `❌ ΑΚΥΡΟ ΕΙΣΙΤΗΡΙΟ!\n\nΟ κωδικός [ ${cleanCode} ] δεν αντιστοιχεί σε καμία ενεργή εγγραφή στο σύστημα.`, 
                 success: false 
               });
               onScanSuccess("Άκυρο εισιτήριο!", "error");
               return;
             }
 
-            // 4. Το εισιτήριο είναι έγκυρο -> ΔΙΑΓΡΑΦΗ αμέσως από τη βάση (Προστασία από διπλή είσοδο)
+            // 4. Διαγραφή του εισιτηρίου με βάση το ID του (Ακαριαία ακύρωση)
             const { error: deleteError } = await supabase
               .from('tickets')
               .delete()
@@ -192,7 +201,7 @@ function QrTicketScanner({ onScanSuccess }: { onScanSuccess: (msg: string, type:
 
             if (deleteError) throw deleteError;
 
-            // 5. Επιτυχής είσοδος
+            // 5. Επιτυχής έλεγχος και εμφάνιση στοιχείων αγοραστή
             setScanResult({
               message: `✅ ΕΓΚΥΡΟ ΕΙΣΙΤΗΡΙΟ! ΕΙΣΟΔΟΣ ΕΛΕΥΘΕΡΗ!\n\n👤 Κάτοχος: ${ticket.buyer_name || '—'}\n🎫 Event: ${ticket.artist_name || '—'}\n🔑 Κωδικός: ${ticket.ticket_code}\n\nΤο εισιτήριο ακυρώθηκε και αφαιρέθηκε οριστικά από το σύστημα.`,
               success: true
@@ -200,12 +209,13 @@ function QrTicketScanner({ onScanSuccess }: { onScanSuccess: (msg: string, type:
             onScanSuccess("✓ Έγκυρο εισιτήριο! Διαγράφηκε.", "success");
 
           } catch (err: any) {
+            console.error(err);
             setScanResult({ message: `❌ Σφάλμα συστήματος: ${err.message}`, success: false });
             onScanSuccess("Σφάλμα επεξεργασίας", "error");
           }
         },
         (error) => {
-          // Σφάλματα focus της κάμερας κατά την κίνηση (αγνοούνται για ομαλή λειτουργία)
+          // Σφάλματα κάμερας/focus αγνοούνται για ομαλή ροή
         }
       );
     }
@@ -218,13 +228,13 @@ function QrTicketScanner({ onScanSuccess }: { onScanSuccess: (msg: string, type:
   }, [scanning]);
 
   return (
-    <div className="bg-white/3 border border-white/8 rounded-2xl p-6 flex flex-col items-center justify-center max-w-md mx-auto text-center space-y-4">
+    <div className="bg-white/5 border border-white/10 rounded-2xl p-6 flex flex-col items-center justify-center max-w-md mx-auto text-center space-y-4">
       <div className="w-12 h-12 rounded-xl bg-purple-600/20 flex items-center justify-center text-purple-400">
         <Scan size={24} />
       </div>
       <div>
         <h3 className="text-lg font-bold text-white">Σκανάρισμα QR Code</h3>
-        <p className="text-gray-500 text-xs mt-1">Αυτόματο φιλτράρισμα κωδικών και ακαριαίος έλεγχος βάσης.</p>
+        <p className="text-gray-400 text-xs mt-1">Αυτόματο φιλτράρισμα κωδικών και ακαριαίος έλεγχος βάσης.</p>
       </div>
 
       {!scanning && !scanResult && (
@@ -248,7 +258,7 @@ function QrTicketScanner({ onScanSuccess }: { onScanSuccess: (msg: string, type:
         <div className={`w-full p-5 border rounded-xl text-sm whitespace-pre-line text-left ${scanResult.success ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
           <p className="font-semibold mb-4 leading-relaxed">{scanResult.message}</p>
           <button onClick={() => { setScanResult(null); setScanning(true); }}
-            className="w-full bg-white/10 hover:bg-white/15 text-white py-2.5 rounded-lg text-xs font-bold transition text-center block">
+            className="w-full bg-white/10 hover:bg-white/20 text-white py-2.5 rounded-lg text-xs font-bold transition text-center block">
             Σκανάρισμα Επόμενου
           </button>
         </div>
