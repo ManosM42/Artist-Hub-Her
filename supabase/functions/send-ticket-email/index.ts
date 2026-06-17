@@ -135,7 +135,7 @@ serve(async (req) => {
         'Authorization': `Bearer ${resendApiKey}`,
       },
       body: JSON.stringify({
-        from: 'Heraklion is Alive <onboarding@resend.dev>',
+        from: 'Artist Hub Heraklion <onboarding@resend.dev>',
         to: buyerEmail, 
         subject: `🎫 Εισιτήριο για ${artistName} — Heraklion is Alive`,
         html: emailHtml,
