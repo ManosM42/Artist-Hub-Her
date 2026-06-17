@@ -21,7 +21,6 @@ interface ArtistPricing {
   event_venue: string | null;
 }
 
-// ── ΣΥΝΑΡΤΗΣΗ ΑΠΟΣΤΟΛΗΣ EMAIL ΜΕΣΩ RESEND (Πλέον παίρνει και το ticketCode) ──
 async function sendTicketEmail(
   buyerEmail: string, 
   buyerName: string, 
@@ -32,14 +31,20 @@ async function sendTicketEmail(
   ticketCode: string
 ) {
   try {
+    console.log("⏳ Κλήση της Edge Function send-ticket-email...");
+    
     const { data, error } = await supabase.functions.invoke('send-ticket-email', {
       body: { buyerEmail, buyerName, artistSlug, artistName, quantity, total, ticketCode }
     });
 
-    if (error) throw error;
-    console.log("🎉 Το email στάλθηκε με επιτυχία:", data);
+    if (error) {
+      console.error("❌ Η Edge Function επέστρεψε σφάλμα:", error);
+      return;
+    }
+
+    console.log("🎉 Απάντηση από Edge Function:", data);
   } catch (error) {
-    console.error("❌ Σφάλμα κατά την αποστολή του email:", error);
+    console.error("❌ Κρίσιμο σφάλμα κατά την επικοινωνία με την Function:", error);
   }
 }
 

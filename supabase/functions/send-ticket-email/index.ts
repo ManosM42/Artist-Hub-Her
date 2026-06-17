@@ -10,7 +10,7 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
-    // Παίρνουμε το ticketCode έτοιμο από το Frontend
+    // Λήψη των δεδομένων από το Frontend
     const { buyerEmail, buyerName, artistSlug, artistName, quantity, total, ticketCode } = await req.json()
 
     const supabase = createClient(
@@ -18,20 +18,27 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
-    // 1. ΑΠΛΟ UPDATE: Ενημερώνουμε το ήδη υπάρχον εισιτήριο
+    // 1. UPDATE: Ενημερώνουμε το ήδη υπάρχον pending εισιτήριο σε confirmed
     const { error: updateError } = await supabase
       .from('tickets')
       .update({ status: 'confirmed' })
       .eq('ticket_code', ticketCode)
 
-    if (updateError) throw updateError
+    if (updateError) {
+      console.error("❌ Supabase DB Update Error:", updateError)
+      throw new Error(`Database update failed: ${updateError.message}`)
+    }
 
-    // Ανάκτηση artist από Supabase για το template του email
-    const { data: artist } = await supabase
+    // 2. Ανάκτηση στοιχείων του artist για το template του email
+    const { data: artist, error: artistError } = await supabase
       .from('artists')
       .select('image, event_date, event_time, event_venue, ticket_price, ticket_currency, accent')
       .eq('slug', artistSlug)
       .single()
+
+    if (artistError) {
+      console.warn("⚠️ Δεν βρέθηκε ο καλλιτέχνης, χρησιμοποιούνται default τιμές.")
+    }
 
     const artistImage = artist?.image || ''
     const eventDate = artist?.event_date || 'TBA'
@@ -45,7 +52,7 @@ serve(async (req) => {
     const orderTime = new Date().toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit' })
     const orderId = `ORD-${Date.now().toString().slice(-8)}`
 
-    // Χτίσιμο της κάρτας με τον ΕΝΑΝ και μοναδικό κωδικό που λάβαμε
+    // 3. Χτίσιμο του QR Code URL και του HTML Template
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(ticketCode)}&bgcolor=ffffff&color=111111&margin=10`
 
     const ticketCardsHtml = `
@@ -130,8 +137,9 @@ serve(async (req) => {
     </html>
     `;
 
+    // 4. Αποστολή με Resend API και έλεγχος Response Status
     const resendApiKey = Deno.env.get('RESEND_API_KEY')
-    await fetch('https://api.resend.com/emails', {
+    const resendResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -139,11 +147,21 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         from: 'Heraklion is Alive <onboarding@resend.dev>',
-        to: buyerEmail, // Στέλνουμε κατευθείαν στον αγοραστή
+        to: buyerEmail, 
         subject: `🎫 Εισιτήριο για ${artistName} — Heraklion is Alive`,
         html: emailHtml,
       }),
     })
+
+    // Αν το Resend API αποτύχει, διαβάζουμε το σφάλμα και το πετάμε στο Catch block
+    if (!resendResponse.ok) {
+      const errorData = await resendResponse.json()
+      console.error("❌ Resend API Returned Error:", errorData)
+      throw new Error(`Resend Failed: ${errorData.message || JSON.stringify(errorData)}`)
+    }
+
+    const resendSuccessData = await resendResponse.json()
+    console.log("🎉 Resend Success:", resendSuccessData)
 
     return new Response(JSON.stringify({ success: true, orderId }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -151,6 +169,7 @@ serve(async (req) => {
     })
 
   } catch (error) {
+    console.error('❌ Edge Function caught an error:', error.message)
     return new Response(JSON.stringify({ success: false, error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,
