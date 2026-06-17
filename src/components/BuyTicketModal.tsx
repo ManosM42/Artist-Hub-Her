@@ -210,24 +210,18 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
   const total = (price * quantity).toFixed(2);
 
   const handlePaymentSuccess = async () => {
-    if (ticketCode) {
-      const emailSent = await sendTicketEmail(
-        email.trim(), 
-        name.trim(), 
-        artist.slug, 
-        artist.name, 
-        quantity, 
-        total, 
-        ticketCode
-      );
-      
-      if (!emailSent) {
-        console.warn("⚠️ Το email δεν στάλθηκε, αλλά προχωράμε στο success screen.");
-      }
-    }
+    // Καλούμε την Edge Function στέλνοντας ΜΟΝΟ αυτά που περιμένει
+    await sendTicketEmail(
+      email.trim(), 
+      name.trim(), 
+      artist.slug, 
+      artist.name, 
+      quantity, 
+      total
+    );
+    
     setStep('success');
   };
-
   return (
     <AnimatePresence>
       {open && (
