@@ -144,33 +144,40 @@ function QrTicketScanner({ onScanSuccess }: { onScanSuccess: (msg: string, type:
 
       scannerRef.current.render(
         async (decodedText) => {
-          // Μόλις βρει κώδικα, σταματάμε προσωρινά το σκανάρισμα για επεξεργασία
+          // 1. Σταματάμε αμέσως το scanner για να μην ξανασκανάρει κατά την επεξεργασία
           setScanning(false);
           if (scannerRef.current) {
             scannerRef.current.clear().catch(console.error);
           }
 
           try {
-            // 1. Έλεγχος αν το εισιτήριο υπάρχει και είναι ενεργό
+            // 2. Καθαρισμός του κειμένου. Αν είναι URL, παίρνουμε μόνο το τελευταίο κομμάτι μετά το τελευταίο /
+            let cleanCode = decodedText.trim();
+            if (cleanCode.includes('/')) {
+              const parts = cleanCode.split('/');
+              cleanCode = parts[parts.length - 1] || cleanCode;
+            }
+            
+            console.log("🔍 Αναζήτηση στη βάση για το ticket_code:", cleanCode);
+
+            // 3. Έλεγχος αν το εισιτήριο υπάρχει στον πίνακα tickets
             const { data: ticket, error: fetchError } = await supabase
               .from('tickets')
               .select('*')
-              .eq('ticket_code', decodedText)
-              .single();
+              .eq('ticket_code', cleanCode)
+              .maybeSingle(); // Χρησιμοποιούμε maybeSingle για να αποφύγουμε crash αν δεν βρεθεί τίποτα
 
             if (fetchError || !ticket) {
-              setScanResult({ message: "❌ Άκυρο Εισιτήριο! Δεν βρέθηκε στη βάση.", success: false });
+              console.error("Σφάλμα ή δεν βρέθηκε εισιτήριο:", fetchError);
+              setScanResult({ 
+                message: `❌ Άκυρο Εισιτήριο!\nΟ κωδικός [ ${cleanCode} ] δεν υπάρχει στη βάση δεδομένων.`, 
+                success: false 
+              });
               onScanSuccess("Άκυρο εισιτήριο!", "error");
               return;
             }
 
-            if (ticket.status !== 'pending') {
-              setScanResult({ message: "⚠️ Το εισιτήριο έχει ήδη χρησιμοποιηθεί!", success: false });
-              onScanSuccess("Ήδη χρησιμοποιημένο!", "error");
-              return;
-            }
-
-            // 2. Εφόσον είναι έγκυρο, το ΔΙΑΓΡΑΦΟΥΜΕ αμέσως όπως ζήτησες
+            // 4. Εφόσον βρέθηκε, το ΔΙΑΓΡΑΦΟΥΜΕ αμέσως για να μην ξαναχρησιμοποιηθεί
             const { error: deleteError } = await supabase
               .from('tickets')
               .delete()
@@ -178,19 +185,21 @@ function QrTicketScanner({ onScanSuccess }: { onScanSuccess: (msg: string, type:
 
             if (deleteError) throw deleteError;
 
+            // 5. Εμφάνιση μηνύματος επιτυχούς εισόδου
             setScanResult({
-              message: `✅ ΕΓΚΥΡΟ ΕΙΣΙΤΗΡΙΟ!\nΚάτοχος: ${ticket.buyer_name || 'Άγνωστος'}\nΚαλλιτέχνης: ${ticket.artist_name || ''}\n\nΤο εισιτήριο επιβεβαιώθηκε και διαγράφηκε επιτυχώς.`,
+              message: `✅ ΕΓΚΥΡΟ ΕΙΣΙΤΗΡΙΟ! ΚΑΛΗ ΔΙΑΣΚΕΔΑΣΗ!\n\n👤 Κάτοχος: ${ticket.buyer_name || '—'}\n🎫 Event: ${ticket.artist_name || '—'}\n🔑 Code: ${ticket.ticket_code}\n\nΤο εισιτήριο αφαιρέθηκε οριστικά από το σύστημα.`,
               success: true
             });
-            onScanSuccess("✓ Το εισιτήριο εξαργυρώθηκε και διαγράφηκε!", "success");
+            onScanSuccess("✓ Έγκυρο εισιτήριο! Διαγράφηκε.", "success");
 
           } catch (err: any) {
+            console.error("Κρίσιμο σφάλμα κατά το σκανάρισμα:", err);
             setScanResult({ message: `❌ Σφάλμα συστήματος: ${err.message}`, success: false });
             onScanSuccess("Σφάλμα επεξεργασίας", "error");
           }
         },
         (error) => {
-          // Σφάλματα ανάγνωσης κατά τη διάρκεια της κίνησης της κάμερας (αγνοούνται)
+          // Αγνοούμε τα warning ανάγνωσης κατά την κίνηση της κάμερας
         }
       );
     }
