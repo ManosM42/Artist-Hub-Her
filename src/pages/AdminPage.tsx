@@ -171,10 +171,10 @@ function QrTicketScanner({ onScanSuccess }: { onScanSuccess: (msg: string, type:
 
             // Αναζήτηση στη βάση
             const { data: ticket, error: fetchError } = await supabase
-              .from('tickets')
-              .select('*')
-              .eq('ticket_code', cleanCode)
-              .maybeSingle();
+  .from('tickets')
+  .select('*')
+  .ilike('ticket_code', cleanCode) // Το .ilike αγνοεί αν είναι κεφαλαία ή πεζά!
+  .maybeSingle();
 
             if (fetchError || !ticket) {
               setScanResult({ 
