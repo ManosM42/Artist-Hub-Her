@@ -339,20 +339,20 @@ serve(async (req) => {
     `
 
     // ── Αποστολή με Resend ────────────────────────────────────────
-    const resendApiKey = Deno.env.get('RESEND_API_KEY')
-    const resendResponse = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${resendApiKey}`,
-      },
-      body: JSON.stringify({
-        from: 'Artist Hub Heraklion <onboarding@resend.dev>',
-        to: buyerEmail, // 👈 Αλλαγή: Το email φεύγει πλέον δυναμικά στον πραγματικό αγοραστή!
-        subject: `🎫 ${quantity > 1 ? `${quantity} εισιτήρια` : 'Εισιτήριο'} για ${artistName} — Artist Hub Heraklion`,
-        html: emailHtml,
-      }),
-    })
+   const resendApiKey = Deno.env.get('RESEND_API_KEY')
+const resendResponse = await fetch('https://api.resend.com/emails', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${resendApiKey}`,
+  },
+  body: JSON.stringify({
+    from: 'Artist Hub Heraklion <onboarding@resend.dev>',
+    to: 'manosmark42@gmail.com', // 👈 ΒΑΛΕ ΞΑΝΑ ΤΟ ΔΙΚΟ ΣΟΥ HARDCODED ΜΟΝΟ ΓΙΑ ΤΟ TESTING
+    subject: `🎫 ${quantity > 1 ? `${quantity} εισιτήρια` : 'Εισιτήριο'} για ${artistName} — Artist Hub Heraklion`,
+    html: emailHtml,
+  }),
+})
 
     if (!resendResponse.ok) {
       const err = await resendResponse.json()
