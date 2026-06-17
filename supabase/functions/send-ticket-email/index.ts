@@ -50,11 +50,14 @@ serve(async (req) => {
     const orderTime = new Date().toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit' })
     const orderId = `ORD-${Date.now().toString().slice(-8)}`
 
-    // 2. Δημιουργία των rows με σωστό κωδικό SNIK-XXXXX και το Stripe ID
     for (let i = 0; i < quantity; i++) {
-      const uniqueTicketCode = `${artistSlug.toUpperCase()}-${Math.random().toString(36).substring(2, 11).toUpperCase()}-${Date.now().toString().slice(-4)}`
+      // 1. Δημιουργούμε τον μοναδικό custom κωδικό (π.χ. SNIK-3XU4JB-7007)
+      const uniqueTicketCode = `${artistSlug.toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Date.now().toString().slice(-4)}`
+      
+      // 2. Τον βάζουμε στο array για το email
       generatedCodes.push(uniqueTicketCode)
       
+      // 3. Τον βάζουμε ΚΑΙ στο row που θα γίνει insert στη Supabase
       ticketsRows.push({
         user_id: userId,
         artist_id: artistSlug,
@@ -62,15 +65,15 @@ serve(async (req) => {
         buyer_email: buyerEmail,
         buyer_name: buyerName,
         price: pricePerTicket,
-        ticket_code: uniqueTicketCode,
-        status: 'confirmed', // 👈 Κατευθείαν confirmed αφού έγινε η πληρωμή
+        ticket_code: uniqueTicketCode, // 👈 ΕΔΩ: Σιγουρέψου ότι γράφει uniqueTicketCode και όχι κάτι άλλο!
+        status: 'confirmed',
         event_date: eventDate,
         event_venue: eventVenue,
-        stripe_payment_intent_id: paymentIntentId, // 👈 Εδώ σώζεται το σωστό Stripe ID
+        stripe_payment_intent_id: paymentIntentId,
       })
     }
 
-    // Μοναδικό insert στη βάση
+    // Μοναδικό insert στη βάση με τους ΣΩΣΤΟΥΣ κωδικούς
     await supabase.from('tickets').insert(ticketsRows)
 
     // ── Χτίσιμο των ticket cards ──────────────────────────────────
