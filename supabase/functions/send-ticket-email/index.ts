@@ -10,14 +10,15 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
-    const { buyerEmail, buyerName, artistSlug, artistName, quantity, total } = await req.json()
+    // 1. Λήψη των δεδομένων μαζί με το paymentIntentId από το Frontend
+    const { buyerEmail, buyerName, artistSlug, artistName, quantity, total, paymentIntentId } = await req.json()
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
-    // Ανάκτηση user
+    // Ανάκτηση user αν υπάρχει active session
     let userId = null
     try {
       const authHeader = req.headers.get('Authorization')
@@ -27,7 +28,7 @@ serve(async (req) => {
       }
     } catch (_) {}
 
-    // Ανάκτηση artist από Supabase (για φωτογραφία, ημερομηνία, venue, τιμή)
+    // Ανάκτηση artist από Supabase
     const { data: artist } = await supabase
       .from('artists')
       .select('image, event_date, event_time, event_venue, ticket_price, ticket_currency, accent')
@@ -49,9 +50,11 @@ serve(async (req) => {
     const orderTime = new Date().toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit' })
     const orderId = `ORD-${Date.now().toString().slice(-8)}`
 
+    // 2. Δημιουργία των rows με σωστό κωδικό SNIK-XXXXX και το Stripe ID
     for (let i = 0; i < quantity; i++) {
       const uniqueTicketCode = `${artistSlug.toUpperCase()}-${Math.random().toString(36).substring(2, 11).toUpperCase()}-${Date.now().toString().slice(-4)}`
       generatedCodes.push(uniqueTicketCode)
+      
       ticketsRows.push({
         user_id: userId,
         artist_id: artistSlug,
@@ -60,12 +63,14 @@ serve(async (req) => {
         buyer_name: buyerName,
         price: pricePerTicket,
         ticket_code: uniqueTicketCode,
-        status: 'pending',
+        status: 'confirmed', // 👈 Κατευθείαν confirmed αφού έγινε η πληρωμή
         event_date: eventDate,
         event_venue: eventVenue,
+        stripe_payment_intent_id: paymentIntentId, // 👈 Εδώ σώζεται το σωστό Stripe ID
       })
     }
 
+    // Μοναδικό insert στη βάση
     await supabase.from('tickets').insert(ticketsRows)
 
     // ── Χτίσιμο των ticket cards ──────────────────────────────────
@@ -82,7 +87,6 @@ serve(async (req) => {
         box-shadow: 0 25px 60px rgba(0,0,0,0.5);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       ">
-
         <div style="
           position: relative;
           height: 220px;
@@ -95,7 +99,6 @@ serve(async (req) => {
             position: absolute; inset: 0;
             background: linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.85) 100%);
           "></div>
-
           <div style="
             position: absolute; top: 16px; left: 16px;
             background: ${accentColor};
@@ -103,20 +106,16 @@ serve(async (req) => {
             padding: 4px 12px; border-radius: 20px;
             letter-spacing: 1px; text-transform: uppercase;
           ">ARTIST HUB HERAKLION</div>
-
           <div style="
             position: absolute; top: 16px; right: 16px;
             color: rgba(255,255,255,0.6); font-size: 11px; font-weight: 600;
           ">${i + 1} / ${quantity}</div>
-
           <div style="position: absolute; bottom: 16px; left: 20px; right: 20px;">
             <div style="color: white; font-size: 30px; font-weight: 900; line-height: 1; letter-spacing: -0.5px; text-shadow: 0 2px 10px rgba(0,0,0,0.5);">${artistName}</div>
             <div style="color: rgba(255,255,255,0.7); font-size: 13px; margin-top: 4px;">${eventVenue}</div>
           </div>
         </div>
-
         <div style="background: #0f0f1a; padding: 0;">
-
           <div style="
             display: flex; justify-content: space-between;
             padding: 18px 20px;
@@ -137,32 +136,16 @@ serve(async (req) => {
               <div style="color: ${accentColor}; font-size: 14px; font-weight: 800;">${ticketPrice} ${currency}</div>
             </div>
           </div>
-
           <div style="
             display: flex; align-items: center;
             padding: 0 20px;
             position: relative;
           ">
-            <div style="
-              width: 22px; height: 22px; border-radius: 50%;
-              background: #111827;
-              margin-left: -30px; flex-shrink: 0;
-            "></div>
-            <div style="
-              flex: 1; border-top: 2px dashed rgba(255,255,255,0.1);
-              margin: 0 8px;
-            "></div>
-            <div style="
-              width: 22px; height: 22px; border-radius: 50%;
-              background: #111827;
-              margin-right: -30px; flex-shrink: 0;
-            "></div>
+            <div style="width: 22px; height: 22px; border-radius: 50%; background: #111827; margin-left: -30px; flex-shrink: 0;"></div>
+            <div style="flex: 1; border-top: 2px dashed rgba(255,255,255,0.1); margin: 0 8px;"></div>
+            <div style="width: 22px; height: 22px; border-radius: 50%; background: #111827; margin-right: -30px; flex-shrink: 0;"></div>
           </div>
-
-          <div style="
-            text-align: center;
-            padding: 24px 20px 20px;
-          ">
+          <div style="text-align: center; padding: 24px 20px 20px;">
             <div style="
               display: inline-block;
               background: white;
@@ -187,7 +170,6 @@ serve(async (req) => {
               ">${code}</div>
             </div>
           </div>
-
           <div style="
             padding: 14px 20px;
             background: rgba(255,255,255,0.02);
@@ -198,7 +180,6 @@ serve(async (req) => {
               Παρουσιάστε το QR code στην είσοδο. Σκανάρεται μόνο μία φορά.
             </div>
           </div>
-
         </div>
       </div>
       `
@@ -227,20 +208,17 @@ serve(async (req) => {
           <div style="color: rgba(255,255,255,0.4); font-size: 11px;">${orderTime}</div>
         </div>
       </div>
-
       <div style="
         background: #13131f;
         border: 1px solid rgba(255,255,255,0.08);
         border-top: none;
         padding: 0 24px;
       ">
-
         <div style="padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
           <div style="color: rgba(255,255,255,0.35); font-size: 9px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px;">ΣΤΟΙΧΕΙΑ ΑΓΟΡΑΣΤΗ</div>
           <div style="color: white; font-size: 14px; font-weight: 600;">${buyerName}</div>
           <div style="color: rgba(255,255,255,0.4); font-size: 12px; margin-top: 2px;">${buyerEmail}</div>
         </div>
-
         <div style="padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
           <div style="color: rgba(255,255,255,0.35); font-size: 9px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px;">ΣΤΟΙΧΕΙΑ EVENT</div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
@@ -260,7 +238,6 @@ serve(async (req) => {
             <span style="color: white; font-size: 12px;">${eventVenue}</span>
           </div>
         </div>
-
         <div style="padding: 16px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
           <div style="color: rgba(255,255,255,0.35); font-size: 9px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px;">ΑΝΑΛΥΣΗ</div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
@@ -272,14 +249,11 @@ serve(async (req) => {
             <span style="color: rgba(255,255,255,0.7); font-size: 12px;">—</span>
           </div>
         </div>
-
         <div style="padding: 16px 0; display: flex; justify-content: space-between; align-items: center;">
           <span style="color: white; font-size: 15px; font-weight: 700;">Σύνολο</span>
           <span style="color: ${accentColor}; font-size: 20px; font-weight: 900;">${total} ${currency}</span>
         </div>
-
       </div>
-
       <div style="
         background: #0f0f1a;
         border: 1px solid rgba(255,255,255,0.08);
@@ -312,9 +286,7 @@ serve(async (req) => {
       <title>Τα εισιτήριά σου — ${artistName}</title>
     </head>
     <body style="margin: 0; padding: 0; background: #111827;">
-
       <div style="background: #111827; padding: 40px 16px; min-height: 100vh;">
-
         <div style="
           text-align: center;
           margin-bottom: 36px;
@@ -361,7 +333,6 @@ serve(async (req) => {
             © ${new Date().getFullYear()} Artist Hub Heraklion. All rights reserved.
           </p>
         </div>
-
       </div>
     </body>
     </html>
@@ -377,7 +348,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         from: 'Artist Hub Heraklion <onboarding@resend.dev>',
-        to: 'manosmark42@gmail.com',
+        to: buyerEmail, // 👈 Αλλαγή: Το email φεύγει πλέον δυναμικά στον πραγματικό αγοραστή!
         subject: `🎫 ${quantity > 1 ? `${quantity} εισιτήρια` : 'Εισιτήριο'} για ${artistName} — Artist Hub Heraklion`,
         html: emailHtml,
       }),

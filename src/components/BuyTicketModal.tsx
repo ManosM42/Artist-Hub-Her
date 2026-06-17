@@ -29,13 +29,13 @@ async function sendTicketEmail(
   artistName: string, 
   quantity: number, 
   total: string,
-  ticketCode: string
+  paymentIntentId: string // 👈 Αλλαγή: Δεχόμαστε το Stripe Payment Intent ID
 ) {
   try {
     console.log("⏳ Κλήση της Edge Function send-ticket-email...");
     
     const { data, error } = await supabase.functions.invoke('send-ticket-email', {
-      body: { buyerEmail, buyerName, artistSlug, artistName, quantity, total, ticketCode }
+      body: { buyerEmail, buyerName, artistSlug, artistName, quantity, total, paymentIntentId } // 👈 Αποστολή στην Function
     });
 
     if (error) {
@@ -62,7 +62,7 @@ function CheckoutForm({ artist, pricing, quantity, clientSecret, onSuccess }: {
   pricing: ArtistPricing;
   quantity: number;
   clientSecret: string;
-  onSuccess: () => void;
+  onSuccess: (paymentIntentId: string) => void; // 👈 Δέχεται το ID
   onClose: () => void;
 }) {
   const stripe = useStripe();
@@ -83,7 +83,7 @@ function CheckoutForm({ artist, pricing, quantity, clientSecret, onSuccess }: {
       return;
     }
 
-    // Επιβεβαίωση με PaymentElement και αποτροπή redirect αν δεν χρειάζεται
+    // Επιβεβαίωση με PaymentElement
     const { paymentIntent, error: confirmError } = await stripe.confirmPayment({
       elements,
       clientSecret,
@@ -97,7 +97,7 @@ function CheckoutForm({ artist, pricing, quantity, clientSecret, onSuccess }: {
       setError(confirmError.message ?? 'Payment failed');
       setLoading(false);
     } else if (paymentIntent && paymentIntent.status === 'succeeded') {
-      onSuccess(); 
+      onSuccess(paymentIntent.id); // 👈 Περνάμε το pi_XXXXXX ID στην onSuccess
     }
   };
 
@@ -140,7 +140,6 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
   const [email, setEmail] = useState('');
   const [pricing, setPricing] = useState<ArtistPricing | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [ticketCode, setTicketCode] = useState<string | null>(null); 
   const [step, setStep] = useState<'info' | 'payment' | 'success'>('info');
   const [loadingIntent, setLoadingIntent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -156,7 +155,6 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
     if (!open) { 
       setStep('info'); 
       setClientSecret(null); 
-      setTicketCode(null); 
       setError(null);
     }
   }, [open]);
@@ -181,6 +179,7 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
 
     setLoadingIntent(true);
     try {
+      // Καλούμε το create-payment-intent ΜΟΝΟ για τη δημιουργία της πληρωμής, χωρίς να σώζουμε τίποτα ακόμα
       const { data, error: fnError } = await supabase.functions.invoke('create-payment-intent', {
         body: {
           artistId: artist.slug,
@@ -197,7 +196,6 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
       if (fnError) throw fnError;
       
       setClientSecret(data.clientSecret);
-      setTicketCode(data.ticketCode); 
       setStep('payment');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Σφάλμα. Δοκιμάστε ξανά.');
@@ -210,16 +208,16 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
   const total = (price * quantity).toFixed(2);
 
   const handlePaymentSuccess = async (paymentIntentId: string) => {
-    // Παίρνουμε τις τιμές απευθείας από τα states, καθαρισμένες από κενά
     const finalName = name.trim();
     const finalEmail = email.trim().toLowerCase();
 
     console.log("📤 Στέλνουμε στην Edge Function:", { finalName, finalEmail, paymentIntentId });
 
     if (!finalName || !finalEmail) {
-      console.error("❌ Σφάλμα: Το όνομα ή το email είναι κενά στο state!");
+      console.error("❌ Σφάλμα: Το όνομα ή το email είναι κενά!");
     }
 
+    // Καλούμε την Edge Function η οποία θα κάνει το ΜΟΝΑΔΙΚΟ insert με κωδικό SNIK-... και το stripe ID
     await sendTicketEmail(
       finalEmail, 
       finalName, 
