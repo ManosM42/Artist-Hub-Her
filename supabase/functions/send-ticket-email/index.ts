@@ -7,7 +7,7 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  // Διαχείριση CORS για το Frontend
+  // Διαχείριση CORS
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
@@ -18,7 +18,7 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
-    // 1. UPDATE: Ενημερώνουμε το εισιτήριο σε confirmed στη βάση
+    // 1. UPDATE στη βάση δεδομένων
     const { error: updateError } = await supabase
       .from('tickets')
       .update({ status: 'confirmed' })
@@ -26,10 +26,14 @@ serve(async (req) => {
 
     if (updateError) {
       console.error("❌ Supabase DB Update Error:", updateError)
-      throw new Error(`Αποτυχία ενημέρωσης βάσης: ${updateError.message}`)
+      // Επιστρέφουμε 200 με success: false για να μην κρασάρει το fetch του frontend
+      return new Response(
+        JSON.stringify({ success: false, message: `Αποτυχία έκδοσης (DB Error): ${updateError.message}` }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+      )
     }
 
-    // 2. Ανάκτηση στοιχείων του artist για το email template
+    // 2. Ανάκτηση στοιχείων του artist για το email
     const { data: artist } = await supabase
       .from('artists')
       .select('image, event_date, event_time, event_venue, ticket_price, ticket_currency, accent')
@@ -44,13 +48,11 @@ serve(async (req) => {
     const currency = artist?.ticket_currency || 'EUR'
     const accentColor = artist?.accent || '#a855f7'
 
-    const orderId = `ORD-${Date.now().toString().slice(-8)}`
-
-    // 3. QR Code URL και HTML Template
+    // 3. QR Code και HTML Template
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(ticketCode)}&bgcolor=ffffff&color=111111&margin=10`
 
     const ticketCardsHtml = `
-      <div style="width: 560px; max-width: 100%; margin: 0 auto 40px auto; border-radius: 20px; overflow: hidden; box-shadow: 0 25px 60px rgba(0,0,0,0.5); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+      <div style="width: 560px; max-width: 100%; margin: 0 auto 40px auto; border-radius: 20px; overflow: hidden; box-shadow: 0 25px 60px rgba(0,0,0,0.5); font-family: sans-serif;">
         <div style="position: relative; height: 220px; background-image: url('${artistImage}'); background-size: cover; background-position: center top;">
           <div style="position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.85) 100%);"></div>
           <div style="position: absolute; top: 16px; left: 16px; background: ${accentColor}; color: white; font-size: 10px; font-weight: 800; padding: 4px 12px; border-radius: 20px;">Artist Hub Heraklion</div>
@@ -67,9 +69,9 @@ serve(async (req) => {
           <div style="color: rgba(255,255,255,0.7); font-family: monospace; margin-top: 10px;">${ticketCode}</div>
         </div>
       </div>
-    `;
+    `
 
-    // 4. Αποστολή με Resend - ΚΛΕΙΔΩΜΕΝΟ ΣΤΟ ΔΙΚΟ ΣΟΥ EMAIL ΓΙΑ ΤΑ ΤΕΣΤ
+    // 4. Αποστολή με Resend (Κλειδωμένο στο δικό σου email για τα τεστ)
     const resendApiKey = Deno.env.get('RESEND_API_KEY')
     const resendResponse = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -79,7 +81,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         from: 'Heraklion is Alive <onboarding@resend.dev>',
-        to: 'manosmark42@gmail.com', // Στέλνει ΠΑΝΤΑ εδώ λόγω test phase
+        to: 'manosmark42@gmail.com', // Πάντα εδώ για να μην τρως 403 από το Resend Sandbox
         subject: `🎫 Εισιτήριο για ${artistName} — Heraklion is Alive`,
         html: `<html><body>${ticketCardsHtml}</body></html>`,
       }),
@@ -88,28 +90,24 @@ serve(async (req) => {
     if (!resendResponse.ok) {
       const errorData = await resendResponse.json()
       console.error("❌ Resend API Error:", errorData)
-      throw new Error("Αποτυχία αποστολής email μέσω Resend")
+      // Επιστρέφουμε 200 με success: false και το μήνυμα λάθους
+      return new Response(
+        JSON.stringify({ success: false, message: `Επιτυχής έκδοση, αλλά αποτυχία αποστολής email (Resend Sandbox).` }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+      )
     }
 
-    // 5. ΕΠΙΤΥΧΙΑ: Επιστρέφουμε θετική απάντηση στο Frontend
+    // 5. ΟΛΑ ΠΕΤΥΧΑΝ
     return new Response(
-      JSON.stringify({ 
-        success: true, 
-        message: "Επιτυχής έκδοση εισιτήριου και sent email", 
-        orderId 
-      }), 
+      JSON.stringify({ success: true, message: "Επιτυχής έκδοση εισητήριου και sent email" }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     )
 
   } catch (error) {
-    // 6. ΑΠΟΤΥΧΙΑ: Επιστρέφουμε το αρνητικό μήνυμα στο Frontend
-    console.error('❌ Edge Function Error:', error.message)
+    console.error('❌ Κρίσιμο σφάλμα Function:', error.message)
     return new Response(
-      JSON.stringify({ 
-        success: false, 
-        message: `Αποτυχία έκδοσης εισιτηρίου ή αποστολής email: ${error.message}` 
-      }), 
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      JSON.stringify({ success: false, message: `Κρίσιμο σφάλμα: ${error.message}` }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     )
   }
 })
