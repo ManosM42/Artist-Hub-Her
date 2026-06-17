@@ -21,7 +21,7 @@ interface ArtistPricing {
   event_venue: string | null;
 }
 
-// ── Σωστή, αυτόνομη συνάρτηση για την Edge Function ──
+// ── Αυτόνομη συνάρτηση για την Edge Function ──
 async function sendTicketEmail(
   buyerEmail: string, 
   buyerName: string, 
@@ -57,7 +57,6 @@ async function sendTicketEmail(
 }
 
 // ── Inner form (Stripe Context) ──
-// 💡 Προσθέσαμε το clientSecret στα props για να μπορεί να το διαβάσει η Stripe!
 function CheckoutForm({ artist, pricing, quantity, clientSecret, onSuccess }: {
   artist: Artist;
   pricing: ArtistPricing;
@@ -77,7 +76,6 @@ function CheckoutForm({ artist, pricing, quantity, clientSecret, onSuccess }: {
     setLoading(true);
     setError(null);
 
-    // 1. Κάνουμε submit τα στοιχεία της φόρμας
     const { error: submitError } = await elements.submit();
     if (submitError) {
       setError(submitError.message ?? 'Payment failed');
@@ -85,25 +83,24 @@ function CheckoutForm({ artist, pricing, quantity, clientSecret, onSuccess }: {
       return;
     }
 
-    // 2. Σωστή επιβεβαίωση για το PaymentElement ΧΩΡΙΣ υποχρεωτικό redirect
+    // Επιβεβαίωση με PaymentElement και αποτροπή redirect αν δεν χρειάζεται
     const { paymentIntent, error: confirmError } = await stripe.confirmPayment({
       elements,
       clientSecret,
       confirmParams: {
         return_url: `${window.location.origin}/payment-success`,
       },
-      redirect: 'if_required', // <-- Αυτό αποτρέπει το redirect αν δεν χρειάζεται 3D Secure ταυτοποίηση!
+      redirect: 'if_required', 
     });
 
     if (confirmError) {
       setError(confirmError.message ?? 'Payment failed');
       setLoading(false);
     } else if (paymentIntent && paymentIntent.status === 'succeeded') {
-      // 3. Αν η πληρωμή πέτυχε χωρίς redirect, προχωράμε στο email και στο success screen
       onSuccess(); 
     }
   };
-  
+
   return (
     <div className="mt-5">
       <PaymentElement options={{ layout: 'tabs' }} onReady={() => setIsReady(true)} />
@@ -212,7 +209,6 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
   const price = pricing?.ticket_price ?? 0;
   const total = (price * quantity).toFixed(2);
 
-  // Σωστή διαχείριση της επιτυχίας
   const handlePaymentSuccess = async () => {
     if (ticketCode) {
       const emailSent = await sendTicketEmail(
@@ -226,7 +222,7 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
       );
       
       if (!emailSent) {
-        console.warn("⚠️ Το email δεν στάλθηκε (Resend Sandbox περιορισμός), αλλά προχωράμε σε success screen.");
+        console.warn("⚠️ Το email δεν στάλθηκε, αλλά προχωράμε στο success screen.");
       }
     }
     setStep('success');
@@ -316,7 +312,6 @@ export default function BuyTicketModal({ open, onClose, artist }: BuyTicketModal
 
               {step === 'payment' && clientSecret && (
                 <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'night', variables: { colorPrimary: artist.accent, borderRadius: '12px' } } }}>
-                  {/* 💡 ΕΔΩ ΠΕΡΝΑΜΕ ΤΟ CLIENT SECRET ΩΣ PROP */}
                   <CheckoutForm artist={artist} pricing={pricing!} quantity={quantity} clientSecret={clientSecret} onSuccess={handlePaymentSuccess} onClose={onClose} />
                 </Elements>
               )}
