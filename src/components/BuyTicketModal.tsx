@@ -21,7 +21,7 @@ interface ArtistPricing {
   event_venue: string | null;
 }
 
-// ── Αυτόνομη συνάρτηση για την Edge Function ──
+// ✅ Η ΣΩΣΤΗ ΣΥΝΑΡΤΗΣΗ (Κορυφή του αρχείου):
 async function sendTicketEmail(
   buyerEmail: string, 
   buyerName: string, 
@@ -29,13 +29,21 @@ async function sendTicketEmail(
   artistName: string, 
   quantity: number, 
   total: string,
-  paymentIntentId: string // 👈 Αλλαγή: Δεχόμαστε το Stripe Payment Intent ID
+  paymentIntentId: string // 👈 Εδώ!
 ) {
   try {
     console.log("⏳ Κλήση της Edge Function send-ticket-email...");
     
     const { data, error } = await supabase.functions.invoke('send-ticket-email', {
-      body: { buyerEmail, buyerName, artistSlug, artistName, quantity, total, paymentIntentId } // 👈 Αποστολή στην Function
+      body: { 
+        buyerEmail, 
+        buyerName, 
+        artistSlug, 
+        artistName, 
+        quantity, 
+        total, 
+        paymentIntentId // 👈 Πρέπει να γράφει "paymentIntentId" για να το διαβάσει η Edge Function!
+      }
     });
 
     if (error) {
