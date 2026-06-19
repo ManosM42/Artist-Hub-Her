@@ -59,18 +59,18 @@ serve(async (req) => {
       
       // 3. Τον βάζουμε ΚΑΙ στο row που θα γίνει insert στη Supabase
       ticketsRows.push({
-        user_id: userId,
-        artist_id: artistSlug,
-        artist_name: artistName,
-        buyer_email: buyerEmail,
-        buyer_name: buyerName,
-        price: pricePerTicket,
-        ticket_code: uniqueTicketCode, // 👈 ΕΔΩ: Σιγουρέψου ότι γράφει uniqueTicketCode και όχι κάτι άλλο!
-        status: 'confirmed',
-        event_date: eventDate,
-        event_venue: eventVenue,
-        stripe_payment_intent_id: paymentIntentId,
-      })
+  user_id: userId,
+  artist_id: artistSlug,
+  artist_name: artistName,
+  buyer_email: buyerEmail,
+  buyer_name: buyerName,
+  price: pricePerTicket,
+  ticket_code: uniqueTicketCode,
+  status: 'paid',  // ← άλλαξε από 'confirmed' σε 'paid'
+  event_date: eventDate,
+  event_venue: eventVenue,
+  stripe_payment_intent_id: paymentIntentId,
+})
     }
 
     // Μοναδικό insert στη βάση με τους ΣΩΣΤΟΥΣ κωδικούς
