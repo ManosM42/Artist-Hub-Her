@@ -74,7 +74,11 @@ serve(async (req) => {
     }
 
     // Μοναδικό insert στη βάση με τους ΣΩΣΤΟΥΣ κωδικούς
-    await supabase.from('tickets').insert(ticketsRows)
+const { error: insertError } = await supabase.from('tickets').insert(ticketsRows)
+if (insertError) {
+  console.error('Insert error:', JSON.stringify(insertError))
+  throw new Error(`DB insert failed: ${insertError.message}`)
+}
 
     // ── Χτίσιμο των ticket cards ──────────────────────────────────
     const ticketCardsHtml = generatedCodes.map((code, i) => {
