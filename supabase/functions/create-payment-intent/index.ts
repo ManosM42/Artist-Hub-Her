@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
-    const { artistId, artistName, eventDate, eventVenue, price, buyerEmail, buyerName } = await req.json()
+    const { price, buyerEmail } = await req.json()
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
@@ -22,41 +22,20 @@ Deno.serve(async (req) => {
     )
 
     const authHeader = req.headers.get('Authorization')!
-    const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''))
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      authHeader.replace('Bearer ', '')
+    )
+    if (authError || !user) throw new Error('Unauthorized')
 
-    const { data: ticket } = await supabase
-      .from('tickets')
-      .insert({
-        user_id: user!.id,
-        artist_id: artistId,
-        artist_name: artistName,
-        event_date: eventDate,
-        event_venue: eventVenue,
-        price,
-        buyer_email: buyerEmail,
-        buyer_name: buyerName,
-        status: 'pending',
-      })
-      .select()
-      .single()
-
+    // Μόνο δημιουργία Stripe PaymentIntent — κανένα insert στη βάση
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: price * 100,
+      amount: Math.round(price * 100),
       currency: 'eur',
-      metadata: {
-        ticketId: ticket.id,
-        artistId,
-        buyerEmail,
-      },
+      receipt_email: buyerEmail,
     })
 
-    await supabase
-      .from('tickets')
-      .update({ stripe_payment_intent_id: paymentIntent.id })
-      .eq('id', ticket.id)
-
     return new Response(
-      JSON.stringify({ clientSecret: paymentIntent.client_secret, ticketId: ticket.id }),
+      JSON.stringify({ clientSecret: paymentIntent.client_secret }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (error) {
