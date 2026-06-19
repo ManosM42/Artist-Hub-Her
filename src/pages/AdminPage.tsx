@@ -484,31 +484,47 @@ export default function AdminPage() {
   const [editingArtist, setEditingArtist] = useState<Partial<Artist> | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
-  const totalTickets = artists.reduce((s, a) => s + (a.tickets_sold || 0), 0);
-  const totalRevenue = artists.reduce((s, a) => s + ((a.tickets_sold || 0) * (a.ticket_price || 0)), 0);
+  const [totalTickets, setTotalTickets] = useState(0);
+  const [totalRevenue, setTotalRevenue] = useState(0);
   const published = artists.filter(a => a.is_published).length;
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (data.session) {
-        const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.session.user.id).single();
-        if (profile?.role === 'admin') { 
-          setAuthed(true); 
-          fetchArtists(); 
-        } else {
-          await supabase.auth.signOut();
-        }
+  supabase.auth.getSession().then(async ({ data }) => {
+    if (data.session) {
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.session.user.id).single();
+      if (profile?.role === 'admin') {
+        setAuthed(true);
+        fetchArtists();
+        fetchTicketStats(); // 👈 νέο
+      } else {
+        await supabase.auth.signOut();
       }
-      setCheckingAuth(false);
-    });
-  }, []);
+    }
+    setCheckingAuth(false);
+  });
+}, []);
 
   const fetchArtists = async () => {
-    setLoading(true);
-    const { data } = await supabase.from('artists').select('*').order('sort_order').order('name');
-    setArtists(data ?? []);
-    setLoading(false);
-  };
+  setLoading(true);
+  const { data } = await supabase.from('artists').select('*').order('sort_order').order('name');
+  setArtists(data ?? []);
+  setLoading(false);
+  fetchTicketStats();
+};
+
+const fetchTicketStats = async () => {
+  const { data } = await supabase
+    .from('tickets')
+    .select('price, status')
+    .in('status', ['paid', 'used']);
+
+  if (data) {
+    setTotalTickets(data.length);
+    setTotalRevenue(data.reduce((sum, t) => sum + (t.price || 0), 0));
+  }
+};
+
+  
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -617,7 +633,8 @@ export default function AdminPage() {
             { label: 'Artists', value: artists.length, icon: Music, color: 'text-purple-400' },
             { label: 'Δημοσιευμένα', value: published, icon: Eye, color: 'text-green-400' },
             { label: 'Εισιτήρια', value: totalTickets, icon: Ticket, color: 'text-blue-400' },
-            { label: 'Έσοδα', value: `€${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: 'text-yellow-400' },
+            { label: 'Έσοδα', value: `€${totalRevenue.toFixed(2)}`, icon: TrendingUp, color: 'text-yellow-400' },
+
           ].map(s => {
             const Icon = s.icon;
             return (
