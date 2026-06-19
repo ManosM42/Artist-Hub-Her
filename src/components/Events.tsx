@@ -18,9 +18,12 @@ export default function Events() {
   const inView = useInView(ref, { once: true, margin: '-80px' });
 
   return (
-    <section id="events" className="relative py-28 bg-black overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-b from-black via-purple-950/5 to-black pointer-events-none" />
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-px h-24 bg-gradient-to-b from-transparent via-purple-600 to-transparent opacity-40" />
+    // FIX 1: Swapped bg-black for bg-transparent
+    <section id="events" className="relative py-28 bg-transparent overflow-hidden">
+      
+      {/* FIX 2: Modified gradients so they pull an opaque black overlay out, allowing the animation to shine through */}
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-purple-950/10 to-transparent pointer-events-none" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-px h-24 bg-gradient-to-b from-transparent via-purple-600/40 to-transparent" />
 
       <div className="max-w-7xl mx-auto px-6">
         <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-60px' }} transition={{ duration: 0.7 }} className="text-center mb-16">
@@ -29,7 +32,7 @@ export default function Events() {
             Artists &{' '}
             <span className="text-transparent bg-clip-text" style={{ backgroundImage: 'linear-gradient(135deg, #7c3aed, #ec4899)' }}>Events</span>
           </h2>
-          <p className="text-gray-500 text-lg max-w-xl mx-auto">Greece's most iconic voices, performing live on the island of Crete</p>
+          <p className="text-gray-400 text-lg max-w-xl mx-auto">Greece's most iconic voices, performing live on the island of Crete</p>
         </motion.div>
 
         <motion.div ref={ref} variants={container} initial="hidden" animate={inView ? 'show' : 'hidden'} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
@@ -52,7 +55,8 @@ function ArtistCard({ artist }: { artist: typeof artists[0] }) {
       whileHover={{ y: -8, scale: 1.02 }}
       transition={{ type: 'spring', stiffness: 300, damping: 20 }}
       className="group relative rounded-2xl overflow-hidden cursor-pointer"
-      style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
+      // Added a glass-like blur effect onto the card body so it stands out distinctly over the underlying shader animation
+      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(8px)' }}
     >
       <div className="relative h-52 overflow-hidden">
         <img src={artist.image} alt={artist.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 brightness-50 group-hover:brightness-[0.6]" />
@@ -77,7 +81,7 @@ function ArtistCard({ artist }: { artist: typeof artists[0] }) {
       </div>
 
       <div className="p-4">
-        <p className="text-gray-500 text-sm leading-relaxed">{artist.description}</p>
+        <p className="text-gray-400 text-sm leading-relaxed">{artist.description}</p>
         <motion.button
           whileHover={{ scale: 1.03 }}
           whileTap={{ scale: 0.97 }}

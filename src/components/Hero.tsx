@@ -1,23 +1,31 @@
 import { motion } from 'framer-motion';
-import ParticleBackground from './ParticleBackground';
 
 export default function Hero() {
   const scrollToEvents = () => {
-    const el = document.querySelector('#events');
-    if (el) el.scrollIntoView({ behavior: 'smooth' });
+    // Falls back safely if document isn't fully loaded yet
+    if (typeof window !== 'undefined') {
+      const el = document.getElementById('events');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const scrollToAbout = () => {
+    if (typeof window !== 'undefined') {
+      const el = document.getElementById('about');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }
   };
 
   return (
-    <section id="home" className="relative min-h-screen flex items-center justify-center overflow-hidden bg-black">
-      <ParticleBackground />
-      <div className="absolute inset-0 bg-gradient-radial from-purple-950/30 via-black/60 to-black pointer-events-none" />
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full opacity-10 blur-3xl pointer-events-none" style={{ background: 'radial-gradient(circle, #7c3aed 0%, transparent 70%)' }} />
-      <div className="absolute bottom-1/4 right-1/4 w-80 h-80 rounded-full opacity-[0.08] blur-3xl pointer-events-none" style={{ background: 'radial-gradient(circle, #ec4899 0%, transparent 70%)' }} />
-
+    <section id="home" className="relative min-h-screen flex items-center justify-center overflow-hidden bg-transparent">
+      
       <div className="relative z-10 text-center px-6 max-w-5xl mx-auto">
-        
-
-        <motion.h1 initial={{ opacity: 0, y: 50, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.9, delay: 0.4, ease: [0.22, 1, 0.36, 1] }} className="text-5xl sm:text-7xl md:text-8xl font-black leading-none tracking-tight mb-6">
+        <motion.h1 
+          initial={{ opacity: 0, y: 50, scale: 0.95 }} 
+          animate={{ opacity: 1, y: 0, scale: 1 }} 
+          transition={{ duration: 0.9, delay: 0.4, ease: [0.22, 1, 0.36, 1] }} 
+          className="text-5xl sm:text-7xl md:text-8xl font-black leading-none tracking-tight mb-6"
+        >
           <span className="block text-white">Heraklion</span>
           <span className="block relative">
             <span className="text-transparent bg-clip-text" style={{ backgroundImage: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 40%, #ec4899 100%)' }}>Nightlife</span>
@@ -41,7 +49,8 @@ export default function Hero() {
             <span className="relative z-10">Explore Events</span>
             <div className="absolute inset-0 blur-xl group-hover:opacity-80 opacity-0 transition-opacity duration-300 rounded-full" style={{ background: 'linear-gradient(135deg, #7c3aed80, #ec489980)' }} />
           </motion.button>
-          <motion.button onClick={() => document.querySelector('#about')?.scrollIntoView({ behavior: 'smooth' })} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} className="px-8 py-4 rounded-full text-gray-300 font-bold text-base tracking-wide border border-white/10 hover:border-purple-500/50 backdrop-blur-sm transition-all duration-300 hover:text-white">
+          
+          <motion.button onClick={scrollToAbout} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} className="px-8 py-4 rounded-full text-gray-300 font-bold text-base tracking-wide border border-white/10 hover:border-purple-500/50 backdrop-blur-sm transition-all duration-300 hover:text-white">
             Learn More
           </motion.button>
         </motion.div>
