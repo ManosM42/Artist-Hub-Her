@@ -44,23 +44,36 @@ export default function ArtistPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
+  const [ticketsSold, setTicketsSold] = useState(0);
 
   // Φόρτωση artist από Supabase
-  useEffect(() => {
-    if (!slug) return;
-    setLoading(true);
-    supabase
-      .from('artists')
-      .select('*')
-      .eq('slug', slug)
-      .eq('is_published', true)
-      .single()
-      .then(({ data, error }) => {
-        if (data) setArtist(data);
-        else setNotFound(true);
-        setLoading(false);
-      });
-  }, [slug]);
+ useEffect(() => {
+  if (!slug) return;
+  setLoading(true);
+  supabase
+    .from('artists')
+    .select('*')
+    .eq('slug', slug)
+    .eq('is_published', true)
+    .single()
+    .then(async ({ data, error }) => {
+      if (data) {
+        setArtist(data);
+
+        // Μέτρηση πραγματικών εισιτηρίων από tickets table
+        const { count } = await supabase
+          .from('tickets')
+          .select('*', { count: 'exact', head: true })
+          .eq('artist_id', slug)
+          .in('status', ['paid', 'used']);
+
+        setTicketsSold(count ?? 0);
+      } else {
+        setNotFound(true);
+      }
+      setLoading(false);
+    });
+}, [slug]);
 
   // Payment status από URL params
   useEffect(() => {
@@ -108,8 +121,8 @@ export default function ArtistPage() {
   }
 
   const ticketsSoldPct = artist.tickets_available
-    ? Math.min(100, Math.round((artist.tickets_sold / artist.tickets_available) * 100))
-    : null;
+  ? Math.min(100, Math.round((ticketsSold / artist.tickets_available) * 100))
+  : null;
 
   // Κατασκευή του σωστού Google Maps Embed URL χρησιμοποιώντας lat/lng ή εναλλακτικά το text query
   const mapEmbedUrl = (artist.venue_lat && artist.venue_lng)
@@ -254,8 +267,8 @@ export default function ArtistPage() {
                 {ticketsSoldPct !== null && (
                   <div className="pt-2">
                     <div className="flex justify-between text-xs text-gray-500 mb-2">
-                      <span>{artist.tickets_sold} πουλήθηκαν</span>
-                      <span>{artist.tickets_available! - artist.tickets_sold} διαθέσιμα</span>
+                     <span>{ticketsSold} πουλήθηκαν</span>
+                    <span>{artist.tickets_available! - ticketsSold} διαθέσιμα</span>
                     </div>
                     <div className="h-2 bg-white/8 rounded-full overflow-hidden">
                       <motion.div
