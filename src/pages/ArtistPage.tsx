@@ -353,10 +353,9 @@ export default function ArtistPage() {
 
                 {artist.ticket_url && (
                   <motion.a
-                    href={artist.ticket_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    whileHover={{ x: 4, scale: 1.01 }}
+                    onClick={() => setModalOpen(true)}
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
                     className="flex items-center gap-4 p-4 rounded-xl transition-all duration-300 group"
                     style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
                   >
