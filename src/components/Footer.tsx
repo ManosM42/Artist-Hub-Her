@@ -39,7 +39,7 @@ export default function Footer() {
               <Zap size={18} className="text-purple-400" fill="currentColor" />
               <div className="absolute inset-0 blur-md bg-purple-500 opacity-50" />
             </div>
-            <span className="text-white font-black text-base">Heraklion<span className="text-purple-400"> is Alive</span></span>
+            <span className="text-white font-black text-base">Artist Hub<span className="text-purple-400"> Heaklion</span></span>
           </motion.div>
 
           <motion.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5, delay: 0.1 }} className="flex items-center gap-6">
@@ -58,8 +58,8 @@ export default function Footer() {
         </div>
 
         <div className="mt-8 pt-6 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p className="text-gray-700 text-xs">&copy; {new Date().getFullYear()} Heraklion is Alive. All rights reserved.</p>
-          <p className="text-gray-800 text-xs">Made with love in Crete, Greece</p>
+          <p className="text-gray-700 text-xs">&copy; {new Date().getFullYear()} . All rights reserved.</p>
+          <p className="text-gray-800 text-xs">Made for the Vibe, in Crete, Greece</p>
         </div>
       </div>
     </footer>
